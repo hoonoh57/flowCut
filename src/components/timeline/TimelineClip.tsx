@@ -54,7 +54,7 @@ function useWaveform(clip: Clip, sampleCount: number): number[] {
 function useThumbnails(clip: Clip, width: number, thumbH: number): string[] {
   const [thumbs, setThumbs] = useState<string[]>([]);
   useEffect(() => {
-    if (clip.type !== 'video' || width < 30) return;
+    if ((clip.type !== 'video' && clip.type !== 'image') || width < 30) return;
     const src = clip.src || clip.previewUrl;
     if (!src) return;
     let cancelled = false;
