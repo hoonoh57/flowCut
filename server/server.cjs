@@ -1,3 +1,4 @@
+const { resolveFontPath } = require('./fontMap');
 const express = require('express');
 const cors = require('cors');
 const { spawn, exec } = require('child_process');
