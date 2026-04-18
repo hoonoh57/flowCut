@@ -28,6 +28,7 @@ const SERVER_URL = 'http://localhost:3456';
 
 export const ExportPanel: React.FC = () => {
   const clips = useEditorStore(s => s.clips);
+  const tracks = useEditorStore(s => s.tracks);
   const mediaItems = useEditorStore(s => s.mediaItems);
   const fps = useEditorStore(s => s.fps);
   const pw = useEditorStore(s => s.projectWidth);
@@ -48,7 +49,8 @@ export const ExportPanel: React.FC = () => {
   const [quality, setQuality] = useState<QualityLevel>('medium');
   const [format, setFormat] = useState<ExportFormat>('mp4');
   const [fileName, setFileName] = useState('flowcut_export');
-  const [includeAudio, setIncludeAudio] = useState(true);
+  const [includeAudio,
+          tracks: tracks, setIncludeAudio] = useState(true);
   const [statusMsg, setStatusMsg] = useState('');
   const [serverOnline, setServerOnline] = useState(false);
   const [resultPath, setResultPath] = useState('');
@@ -105,9 +107,7 @@ export const ExportPanel: React.FC = () => {
 
     try {
       // Build input file info - find local paths from src (blob URLs won't work, need original paths)
-      const inputFiles = clips
-        .filter(c => c.type === 'video' || c.type === 'audio' || c.type === 'image')
-        .map(c => ({
+      const inputFiles = clips.map(c => ({
           clipId: c.id,
           type: c.type,
           localPath: getClipLocalPath(c, mediaItems),
@@ -125,6 +125,15 @@ export const ExportPanel: React.FC = () => {
           clipHeight: c.height,
           opacity: c.opacity,
           trackId: c.trackId,
+          text: c.text || c.name || '',
+          fontSize: c.fontSize || 48,
+          fontColor: c.fontColor || '#ffffff',
+          fontFamily: c.fontFamily || 'sans-serif',
+          visible: c.visible,
+          rotation: c.rotation || 0,
+          brightness: c.brightness || 0,
+          contrast: c.contrast || 100,
+          saturation: c.saturation || 100,
         }));
 
       const resp = await fetch(`${SERVER_URL}/api/export`, {
@@ -141,6 +150,7 @@ export const ExportPanel: React.FC = () => {
           outputHeight: out.h,
           fileName,
           includeAudio,
+          tracks: tracks,
         }),
       });
 
