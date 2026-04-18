@@ -5,29 +5,24 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 
-
-// Convert volumeEnvelope to FFmpeg volume filter expression
 function envelopeToVolumeFilter(envelope, durationSec) {
   if (!envelope || envelope.length < 2) return null;
   const sorted = [...envelope].sort((a, b) => a.position - b.position);
-  // Build piecewise linear volume expression using 'if(between(t,...))'
   const parts = [];
   for (let i = 0; i < sorted.length - 1; i++) {
     const a = sorted[i], b = sorted[i + 1];
     const t0 = (a.position * durationSec).toFixed(3);
     const t1 = (b.position * durationSec).toFixed(3);
     const v0 = (a.volume / 100).toFixed(3);
-    const v1 = (b.volume / 100).toFixed(3);
     const dt = (b.position - a.position) * durationSec;
     if (dt <= 0) continue;
-    // Linear interpolation: v0 + (v1-v0) * (t-t0) / (t1-t0)
     const slope = ((b.volume - a.volume) / 100 / dt).toFixed(6);
     parts.push("if(between(t," + t0 + "," + t1 + ")," + v0 + "+" + slope + "*(t-" + t0 + "))");
   }
   if (parts.length === 0) return null;
-  // Chain with default fallback
   return "volume='" + parts.join("+") + "':eval=frame";
 }
+
 const app = express();
 app.use(cors());
 app.use((req, res, next) => {
@@ -48,37 +43,26 @@ const TEMP_DIR = path.join('E:\\2026\\flowcut', 'temp');
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 });
 
-// File upload
 const storage = multer.diskStorage({
   destination: MEDIA_DIR,
   filename: (req, file, cb) => {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
     const unique = Date.now() + '_' + safeName;
     cb(null, unique);
   }
 });
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 * 1024 } });
 
-// Upload media file — returns local path
 app.post('/api/upload', upload.single('file'), (req, res) => {
   if (!req.file) return res.json({ success: false, error: 'No file' });
   const localPath = req.file.path;
-  const servePath = `/media/${req.file.filename}`;
-  console.log(`  Upload: ${req.file.originalname} -> ${localPath}`);
-  res.json({
-    success: true,
-    localPath: localPath,
-    servePath: servePath,
-    fileName: req.file.filename,
-    originalName: req.file.originalname,
-    size: req.file.size,
-  });
+  const servePath = '/media/' + req.file.filename;
+  console.log('  Upload: ' + req.file.originalname + ' -> ' + localPath);
+  res.json({ success: true, localPath, servePath, fileName: req.file.filename, originalName: req.file.originalname, size: req.file.size });
 });
 
-// Serve media files (for browser preview)
 app.use('/media', express.static(MEDIA_DIR));
 
-// SSE progress
 let progressClients = [];
 app.get('/api/progress', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -90,15 +74,12 @@ app.get('/api/progress', (req, res) => {
 });
 
 function sendProgress(data) {
-  progressClients.forEach(c => c.write(`data: ${JSON.stringify(data)}\n\n`));
+  progressClients.forEach(c => c.write('data: ' + JSON.stringify(data) + '\n\n'));
 }
 
-// Health check
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, ffmpeg: FFMPEG, output: OUTPUT_DIR });
 });
-
-// Export
 app.post('/api/export', async (req, res) => {
   const {
     inputFiles, projectWidth, projectHeight, fps,
@@ -112,185 +93,211 @@ app.post('/api/export', async (req, res) => {
   const oh = outputHeight || projectHeight;
   const crf = { original: 16, high: 18, medium: 23, low: 28 }[quality] || 23;
   const ext = format === 'gif' ? 'gif' : format === 'webm' ? 'webm' : 'mp4';
-  const outputPath = path.join(OUTPUT_DIR, `${fileName}.${ext}`);
+
+  // Always use timestamp to avoid stale cache
+  const ts = Date.now();
+  const outputPath = path.join(OUTPUT_DIR, fileName + '_' + ts + '.' + ext);
 
   sendProgress({ status: 'starting', message: 'Export starting...' });
 
   try {
-    const videoClips = inputFiles.filter(f => f.type === 'video' && f.localPath && fs.existsSync(f.localPath));
-    const audioClips = inputFiles.filter(f => (f.type === 'audio' || f.type === 'video') && !f.muted && f.localPath && fs.existsSync(f.localPath));
+    // Separate visual clips (video + image) and audio clips
+    const visualClips = inputFiles
+      .filter(f => (f.type === 'video' || f.type === 'image') && f.localPath && fs.existsSync(f.localPath))
+      .sort((a, b) => a.startFrame - b.startFrame);
+    const audioClips = inputFiles
+      .filter(f => (f.type === 'audio' || f.type === 'video') && !f.muted && f.localPath && fs.existsSync(f.localPath))
+      .sort((a, b) => a.startFrame - b.startFrame);
 
-    if (videoClips.length === 0) {
-      sendProgress({ status: 'error', message: 'No video files found on disk' });
-      return res.json({ success: false, error: 'No video files found. Make sure files are uploaded.' });
+    if (visualClips.length === 0 && audioClips.length === 0) {
+      sendProgress({ status: 'error', message: 'No media files found on disk' });
+      return res.json({ success: false, error: 'No media files found.' });
     }
 
-    // Single clip export (fast path)
-    if (videoClips.length === 1) {
-      const clip = videoClips[0];
-      const startSec = ((clip.sourceStart || 0)).toFixed(3);
+    // Calculate total duration from all clips
+    const maxFrame = inputFiles.reduce((mx, c) => Math.max(mx, c.startFrame + c.durationFrames), 0);
+    const totalDurSec = (maxFrame / fps).toFixed(3);
+
+    const args = ['-y', '-hide_banner'];
+    const filterParts = [];
+    let inputIdx = 0;
+    const inputMap = new Map(); // clipId -> input index
+
+    // --- Add inputs ---
+    // 1) Black background as base canvas
+    args.push('-f', 'lavfi', '-i', 'color=c=black:s=' + ow + 'x' + oh + ':d=' + totalDurSec + ':r=' + fps);
+    const baseIdx = inputIdx++;
+
+    // 2) Add each visual clip as input
+    for (const clip of visualClips) {
+      if (clip.type === 'image') {
+        args.push('-loop', '1', '-t', (clip.durationFrames / fps).toFixed(3), '-i', clip.localPath);
+      } else {
+        args.push('-i', clip.localPath);
+      }
+      inputMap.set(clip.clipId + '_v', inputIdx);
+      inputIdx++;
+    }
+
+    // 3) Add audio-only clips
+    for (const clip of audioClips) {
+      if (!inputMap.has(clip.clipId + '_v')) {
+        args.push('-i', clip.localPath);
+        inputMap.set(clip.clipId + '_a', inputIdx);
+        inputIdx++;
+      }
+    }
+
+    // --- Build complex filter ---
+    let lastVideo = '[' + baseIdx + ':v]';
+    let overlayCount = 0;
+
+    for (const clip of visualClips) {
+      const idx = inputMap.get(clip.clipId + '_v');
+      const startSec = (clip.startFrame / fps).toFixed(3);
       const durSec = (clip.durationFrames / fps).toFixed(3);
+      const endSec = ((clip.startFrame + clip.durationFrames) / fps).toFixed(3);
 
-      const args = ['-y', '-hide_banner'];
+      // Scale input to output size
+      const scaledLabel = 'sc' + overlayCount;
+      let scaleFilter = '[' + idx + ':v]';
 
-      // Input
-      if (parseFloat(startSec) > 0) args.push('-ss', startSec);
-      args.push('-i', clip.localPath);
-      if (parseFloat(durSec) > 0) args.push('-t', durSec);
-
-      // Add separate audio files
-      const separateAudio = audioClips.filter(a => a.clipId !== clip.clipId);
-      separateAudio.forEach(a => {
-        args.push('-i', a.localPath);
-      });
-
-      // Video filters
-      const vf = [];
-      if (ow !== projectWidth || oh !== projectHeight || ow !== clip.width || oh !== clip.height) {
-        vf.push(`scale=${ow}:${oh}:flags=lanczos:force_original_aspect_ratio=decrease`);
-        vf.push(`pad=${ow}:${oh}:(ow-iw)/2:(oh-ih)/2:black`);
+      if (clip.type === 'image') {
+        scaleFilter += 'scale=' + ow + ':' + oh + ':force_original_aspect_ratio=decrease,pad=' + ow + ':' + oh + ':(ow-iw)/2:(oh-ih)/2:black';
+      } else {
+        scaleFilter += 'scale=' + ow + ':' + oh + ':flags=lanczos:force_original_aspect_ratio=decrease,pad=' + ow + ':' + oh + ':(ow-iw)/2:(oh-ih)/2:black';
+        if (clip.speed && clip.speed !== 1) {
+          scaleFilter += ',setpts=' + (1/clip.speed).toFixed(4) + '*PTS';
+        }
       }
-      if (clip.speed && clip.speed !== 1) {
-        vf.push(`setpts=${(1/clip.speed).toFixed(4)}*PTS`);
-      }
-      if (vf.length > 0) args.push('-vf', vf.join(','));
+      scaleFilter += '[' + scaledLabel + ']';
+      filterParts.push(scaleFilter);
 
-      // Audio
-      if (format === 'gif') {
-        args.push('-an');
-      } else if (includeAudio && !clip.muted) {
-        const af = [];
-        // Volume: envelope takes priority over flat volume
+      // Overlay on base at correct time
+      const ovLabel = 'ov' + overlayCount;
+      const overlayFilter = lastVideo + '[' + scaledLabel + ']overlay=0:0:enable=\\'between(t,' + startSec + ',' + endSec + ')\\'[' + ovLabel + ']';
+      filterParts.push(overlayFilter);
+
+      lastVideo = '[' + ovLabel + ']';
+      overlayCount++;
+    }
+
+    // --- Audio mix ---
+    let audioFilter = '';
+    let audioLabel = '';
+    const audioInputs = [];
+
+    if (includeAudio && audioClips.length > 0) {
+      for (let i = 0; i < audioClips.length; i++) {
+        const clip = audioClips[i];
+        const aIdx = inputMap.get(clip.clipId + '_v') || inputMap.get(clip.clipId + '_a');
+        if (aIdx === undefined) continue;
+        const delaySec = (clip.startFrame / fps).toFixed(3);
+        const delayMs = Math.round(clip.startFrame / fps * 1000);
+        const durSec = (clip.durationFrames / fps).toFixed(3);
+        const aLabel = 'a' + i;
+
+        let af = '[' + aIdx + ':a]';
+        const afParts = [];
+        // Volume / envelope
         const envFilter = clip.volumeEnvelope ? envelopeToVolumeFilter(clip.volumeEnvelope, parseFloat(durSec)) : null;
         if (envFilter) {
-          af.push(envFilter);
+          afParts.push(envFilter);
         } else if (clip.volume !== undefined && clip.volume !== 100) {
-          af.push(`volume=${(clip.volume/100).toFixed(2)}`);
+          afParts.push('volume=' + (clip.volume/100).toFixed(2));
         }
-        if (clip.speed && clip.speed !== 1) af.push(`atempo=${Math.max(0.5, Math.min(2, clip.speed))}`);
-        if (clip.fadeIn > 0) af.push(`afade=t=in:st=0:d=${(clip.fadeIn/fps).toFixed(2)}`);
+        if (clip.speed && clip.speed !== 1) {
+          afParts.push('atempo=' + Math.max(0.5, Math.min(2, clip.speed)));
+        }
+        if (clip.fadeIn > 0) afParts.push('afade=t=in:st=0:d=' + (clip.fadeIn/fps).toFixed(2));
         if (clip.fadeOut > 0) {
           const fadeStart = Math.max(0, parseFloat(durSec) - clip.fadeOut/fps);
-          af.push(`afade=t=out:st=${fadeStart.toFixed(2)}:d=${(clip.fadeOut/fps).toFixed(2)}`);
+          afParts.push('afade=t=out:st=' + fadeStart.toFixed(2) + ':d=' + (clip.fadeOut/fps).toFixed(2));
         }
-        if (af.length > 0) args.push('-af', af.join(','));
-      } else {
+        // Delay to correct position
+        afParts.push('adelay=' + delayMs + '|' + delayMs);
+        afParts.push('apad=whole_dur=' + totalDurSec);
+
+        af += afParts.join(',') + '[' + aLabel + ']';
+        filterParts.push(af);
+        audioInputs.push('[' + aLabel + ']');
+      }
+
+      if (audioInputs.length === 1) {
+        audioLabel = audioInputs[0].replace('[', '').replace(']', '');
+      } else if (audioInputs.length > 1) {
+        audioLabel = 'amixed';
+        filterParts.push(audioInputs.join('') + 'amix=inputs=' + audioInputs.length + ':duration=longest:normalize=0[' + audioLabel + ']');
+      }
+    }
+
+    // --- Assemble ---
+    const complexFilter = filterParts.join(';');
+    if (complexFilter) {
+      args.push('-filter_complex', complexFilter);
+      args.push('-map', lastVideo);
+      if (audioLabel) {
+        args.push('-map', '[' + audioLabel + ']');
+      } else if (!includeAudio || audioClips.length === 0) {
         args.push('-an');
       }
-
-      // Codec
-      if (format === 'mp4') {
-        args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', String(crf));
-        args.push('-pix_fmt', 'yuv420p', '-movflags', '+faststart');
-        if (includeAudio && !clip.muted && format !== 'gif') args.push('-c:a', 'aac', '-b:a', '192k');
-      } else if (format === 'webm') {
-        args.push('-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0');
-        if (includeAudio && !clip.muted) args.push('-c:a', 'libopus', '-b:a', '128k');
-      } else if (format === 'gif') {
-        // Override everything for GIF
-        args.length = 0;
-        args.push('-y', '-hide_banner');
-        if (parseFloat(startSec) > 0) args.push('-ss', startSec);
-        args.push('-i', clip.localPath);
-        if (parseFloat(durSec) > 0) args.push('-t', durSec);
-        const gifW = Math.min(ow, 640);
-        args.push('-vf', `fps=${Math.min(fps,15)},scale=${gifW}:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse`);
-      }
-
-      args.push(outputPath);
-
-      console.log(`  FFmpeg: ${args.join(' ').substring(0, 200)}...`);
-      sendProgress({ status: 'encoding', progress: 5, message: `Encoding ${ow}x${oh} ${format.toUpperCase()}...` });
-
-      const totalFrames = Math.round(parseFloat(durSec) * fps);
-      const ffProcess = spawn(FFMPEG, args);
-      let stderrLog = '';
-      let lastPct = 0;
-
-      ffProcess.stderr.on('data', (data) => {
-        const line = data.toString();
-        stderrLog += line;
-        const frameMatch = line.match(/frame=\s*(\d+)/);
-        if (frameMatch) {
-          const frame = parseInt(frameMatch[1]);
-          const pct = totalFrames > 0 ? Math.min(99, Math.round((frame / totalFrames) * 100)) : 50;
-          if (pct > lastPct) {
-            lastPct = pct;
-            sendProgress({ status: 'encoding', progress: pct, message: `Encoding: ${pct}% (${frame}/${totalFrames}f)` });
-          }
-        }
-      });
-
-      await new Promise((resolve, reject) => {
-        ffProcess.on('close', (code) => {
-          if (code === 0) resolve();
-          else {
-            console.log('  FFmpeg stderr:', stderrLog.slice(-500));
-            reject(new Error(`FFmpeg exit code ${code}`));
-          }
-        });
-        ffProcess.on('error', reject);
-      });
-
-      const stats = fs.statSync(outputPath);
-      const sizeMB = (stats.size / 1048576).toFixed(1);
-
-      sendProgress({ status: 'complete', progress: 100, message: `Complete! ${sizeMB}MB`, filePath: outputPath });
-      console.log(`  Done: ${outputPath} (${sizeMB}MB)`);
-
-      return res.json({ success: true, filePath: outputPath, sizeMB: parseFloat(sizeMB), resolution: `${ow}x${oh}` });
     }
 
-    // Multi-clip: concat approach
-    if (videoClips.length > 1) {
-      sendProgress({ status: 'encoding', progress: 5, message: `Multi-clip export (${videoClips.length} clips)...` });
+    args.push('-t', totalDurSec);
 
-      // Sort by startFrame
-      const sorted = [...videoClips].sort((a, b) => a.startFrame - b.startFrame);
-      const concatList = path.join(TEMP_DIR, 'concat.txt');
-      const lines = sorted.map(c => `file '${c.localPath.replace(/\\/g, '/')}'`);
-      fs.writeFileSync(concatList, lines.join('\n'), 'utf8');
+    // Codec settings
+    if (format === 'mp4') {
+      args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', String(crf));
+      args.push('-pix_fmt', 'yuv420p', '-movflags', '+faststart');
+      if (audioLabel) args.push('-c:a', 'aac', '-b:a', '192k');
+    } else if (format === 'webm') {
+      args.push('-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0');
+      if (audioLabel) args.push('-c:a', 'libopus', '-b:a', '128k');
+    } else if (format === 'gif') {
+      args.push('-an');
+    }
 
-      const args = ['-y', '-hide_banner', '-f', 'concat', '-safe', '0', '-i', concatList];
-      const vf = [];
-      if (ow !== projectWidth || oh !== projectHeight) {
-        vf.push(`scale=${ow}:${oh}:flags=lanczos:force_original_aspect_ratio=decrease`);
-        vf.push(`pad=${ow}:${oh}:(ow-iw)/2:(oh-ih)/2:black`);
+    args.push(outputPath);
+
+    console.log('  FFmpeg args:', args.join(' ').substring(0, 300) + '...');
+    sendProgress({ status: 'encoding', progress: 5, message: 'Encoding ' + ow + 'x' + oh + ' ' + format.toUpperCase() + '...' });
+
+    const totalFrames = Math.round(parseFloat(totalDurSec) * fps);
+    const ffProcess = spawn(FFMPEG, args);
+    let stderrLog = '';
+    let lastPct = 0;
+
+    ffProcess.stderr.on('data', (data) => {
+      const line = data.toString();
+      stderrLog += line;
+      const m = line.match(/frame=\s*(\d+)/);
+      if (m) {
+        const frame = parseInt(m[1]);
+        const pct = totalFrames > 0 ? Math.min(99, Math.round((frame / totalFrames) * 100)) : 50;
+        if (pct > lastPct) {
+          lastPct = pct;
+          sendProgress({ status: 'encoding', progress: pct, message: 'Encoding: ' + pct + '% (' + frame + '/' + totalFrames + 'f)' });
+        }
       }
-      if (vf.length > 0) args.push('-vf', vf.join(','));
+    });
 
-      if (format === 'mp4') {
-        args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-movflags', '+faststart');
-        if (includeAudio) args.push('-c:a', 'aac', '-b:a', '192k');
-        else args.push('-an');
-      } else if (format === 'webm') {
-        args.push('-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0');
-        if (includeAudio) args.push('-c:a', 'libopus', '-b:a', '128k');
-        else args.push('-an');
-      }
-      args.push(outputPath);
-
-      const ffProcess = spawn(FFMPEG, args);
-      let lastPct2 = 0;
-      ffProcess.stderr.on('data', (data) => {
-        const line = data.toString();
-        const m = line.match(/frame=\s*(\d+)/);
-        if (m) {
-          const pct = Math.min(99, parseInt(m[1]) % 100);
-          if (pct > lastPct2) { lastPct2 = pct; sendProgress({ status: 'encoding', progress: pct, message: `Encoding: ${pct}%` }); }
+    await new Promise((resolve, reject) => {
+      ffProcess.on('close', (code) => {
+        if (code === 0) resolve();
+        else {
+          console.log('  FFmpeg stderr:', stderrLog.slice(-800));
+          reject(new Error('FFmpeg exit code ' + code));
         }
       });
+      ffProcess.on('error', reject);
+    });
 
-      await new Promise((resolve, reject) => {
-        ffProcess.on('close', code => code === 0 ? resolve() : reject(new Error(`FFmpeg exit ${code}`)));
-        ffProcess.on('error', reject);
-      });
+    const stats = fs.statSync(outputPath);
+    const sizeMB = (stats.size / 1048576).toFixed(1);
+    sendProgress({ status: 'complete', progress: 100, message: 'Complete! ' + sizeMB + 'MB', filePath: outputPath });
+    console.log('  Done: ' + outputPath + ' (' + sizeMB + 'MB)');
 
-      const stats = fs.statSync(outputPath);
-      const sizeMB = (stats.size / 1048576).toFixed(1);
-      sendProgress({ status: 'complete', progress: 100, message: `Complete! ${sizeMB}MB`, filePath: outputPath });
-      return res.json({ success: true, filePath: outputPath, sizeMB: parseFloat(sizeMB), resolution: `${ow}x${oh}` });
-    }
+    return res.json({ success: true, filePath: outputPath, sizeMB: parseFloat(sizeMB), resolution: ow + 'x' + oh });
 
   } catch (err) {
     console.log('  Export error:', err.message);
@@ -299,22 +306,20 @@ app.post('/api/export', async (req, res) => {
   }
 });
 
-// Serve output files
 app.use('/output', express.static(OUTPUT_DIR));
 
-// Open output folder
 app.get('/api/open-output', (req, res) => {
-  exec(`explorer "${OUTPUT_DIR}"`);
+  exec('explorer "' + OUTPUT_DIR + '"');
   res.json({ success: true });
 });
 
 const PORT = 3456;
 app.listen(PORT, () => {
   console.log('');
-  console.log('  FlowCut Export Server');
-  console.log(`  http://localhost:${PORT}`);
-  console.log(`  FFmpeg: ${FFMPEG}`);
-  console.log(`  Output: ${OUTPUT_DIR}`);
-  console.log(`  Media:  ${MEDIA_DIR}`);
+  console.log('  FlowCut Export Server v2');
+  console.log('  http://localhost:' + PORT);
+  console.log('  FFmpeg: ' + FFMPEG);
+  console.log('  Output: ' + OUTPUT_DIR);
+  console.log('  Media:  ' + MEDIA_DIR);
   console.log('');
 });
