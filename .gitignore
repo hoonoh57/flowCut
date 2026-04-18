@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+dist-ssr/
+*.local
+
+# User content (large)
+media_cache/
+output/
+temp/
+
+# Temp files
+temp.txt
+*.tmp
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Vite cache
+node_modules/.vite/
+node_modules/.vite-temp/
+
+# AI upscaler binaries
+tools/realesrgan/*.exe
+tools/realesrgan/*.bin
+tools/realesrgan/*.param
+
+# Environment
+.env
+.env.local
+.env.*.local
