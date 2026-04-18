@@ -48,7 +48,14 @@ function getTrackZOrder(trackId, tracks) {
 }
 
 function escapeDrawText(text) {
-  return text.replace(/\\/g, '\\\\\\\\').replace(/'/g, "'\\\\\\''").replace(/:/g, '\\\\:').replace(/%/g, '%%');
+  // For textfile approach - minimal escaping
+  return text;
+}
+
+function writeTextFile(text, clipId) {
+  const filePath = path.join(TEMP_DIR, 'text_' + clipId + '.txt');
+  fs.writeFileSync(filePath, text, 'utf8');
+  return filePath.replace(/\\/g, '/').replace(/:/g, '\\\\:');
 }
 
 const app = express();
@@ -225,13 +232,17 @@ app.post('/api/export', async (req, res) => {
       overlayCount++;
     }
 
-    // --- TEXT OVERLAY (drawtext) ---
+    // --- TEXT OVERLAY (drawtext via textfile) ---
     for (const clip of textClips) {
       const startSec = (clip.startFrame / fps).toFixed(3);
       const endSec = ((clip.startFrame + clip.durationFrames) / fps).toFixed(3);
-      const SQ = String.fromCharCode(39);
 
-      const text = escapeDrawText(clip.text || clip.name || 'Text');
+      const textContent = clip.text || clip.name || 'Text';
+      const textFilePath = path.join(TEMP_DIR, 'text_' + clip.clipId + '.txt');
+      fs.writeFileSync(textFilePath, textContent, 'utf8');
+      // Escape path for FFmpeg filter: backslashes and colons
+      const escapedPath = textFilePath.replace(/\\/g, '/').replace(/:/g, '\\\\\\\\:');
+
       const sx = ow / projectWidth, sy = oh / projectHeight;
       const tx = Math.round((clip.x || 0) * sx);
       const ty = Math.round((clip.y || 0) * sy);
@@ -239,8 +250,9 @@ app.post('/api/export', async (req, res) => {
       const fontColor = (clip.fontColor || '#ffffff').replace('#', '0x');
 
       const dtLabel = 'dt' + overlayCount;
-      const dt = lastVideo + 'drawtext=text=' + SQ + text + SQ + ':x=' + tx + ':y=' + ty + ':fontsize=' + fontSize + ':fontcolor=' + fontColor + ':enable=' + SQ + 'between(t,' + startSec + ',' + endSec + ')' + SQ + '[' + dtLabel + ']';
-      filterParts.push(dt);
+      // Use textfile instead of text= to avoid escaping issues
+      const dtFilter = lastVideo + 'drawtext=textfile=' + escapedPath + ':x=' + tx + ':y=' + ty + ':fontsize=' + fontSize + ':fontcolor=' + fontColor + ':enable=' + String.fromCharCode(39) + 'between(t\\,' + startSec + '\\,' + endSec + ')' + String.fromCharCode(39) + '[' + dtLabel + ']';
+      filterParts.push(dtFilter);
 
       lastVideo = '[' + dtLabel + ']';
       overlayCount++;
