@@ -51,7 +51,7 @@ function getClipFilter(clip: Clip): string {
   return filters.length > 0 ? filters.join(' ') : 'none';
 }
 
-const ClipMedia: React.FC<{ clip: Clip; isPlaying: boolean; currentFrame: number; fps: number }> = ({ clip, isPlaying, currentFrame, fps }) => {
+const ClipMedia: React.FC<{ clip: Clip; isPlaying: boolean; currentFrame: number; fps: number; mediaItems?: any[] }> = ({ clip, isPlaying, currentFrame, fps, mediaItems }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const targetTime = (currentFrame - clip.startFrame) / fps * (clip.speed || 1);
   useEffect(() => {
@@ -72,11 +72,11 @@ const ClipMedia: React.FC<{ clip: Clip; isPlaying: boolean; currentFrame: number
   }, [isPlaying, targetTime, clip.speed]);
 
   if (clip.type === 'video') {
-    return <video ref={videoRef} src={getClipPreviewUrl(clip)} muted={clip.muted}
+    return <video ref={videoRef} src={getClipPreviewUrl(clip, mediaItems)} muted={clip.muted}
       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />;
   }
   if (clip.type === 'image') {
-    return <img src={getClipPreviewUrl(clip)} alt={clip.name}
+    return <img src={getClipPreviewUrl(clip, mediaItems)} alt={clip.name}
       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />;
   }
   if (clip.type === 'text') {
@@ -189,6 +189,7 @@ export const PreviewCanvas: React.FC = () => {
   const fitMode = useEditorStore((s) => s.fitMode);
   const setFitMode = useEditorStore((s) => s.setFitMode);
   const selectedClipIds = useEditorStore((s) => s.selectedClipIds);
+  const mediaItems = useEditorStore((s) => s.mediaItems);
   const clearSelection = useEditorStore((s) => s.clearSelection);
   const [guideMode, setGuideMode] = useState<GuideMode>('off');
   const canvasWrapRef = useRef<HTMLDivElement>(null);
@@ -224,7 +225,7 @@ export const PreviewCanvas: React.FC = () => {
                   opacity, filter: getClipFilter(clip),
                   transition: 'opacity 0.05s linear', overflow: 'hidden',
                 }}>
-                  <ClipMedia clip={clip} isPlaying={isPlaying} currentFrame={currentFrame} fps={fps} />
+                  <ClipMedia clip={clip} isPlaying={isPlaying} currentFrame={currentFrame} fps={fps} mediaItems={mediaItems} />
                 </div>
               );
             })}

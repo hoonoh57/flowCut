@@ -1,4 +1,19 @@
 import { useEditorStore } from '../stores/editorStore';
+import type { MediaItem } from '../stores/slices/mediaSlice';
+import type { AspectPreset, FitMode } from '../stores/slices/playbackSlice';
+
+export interface SavedMedia {
+  id: string;
+  name: string;
+  type: 'video' | 'image' | 'audio';
+  localPath: string;
+  url: string;
+  duration: number;
+  width: number;
+  height: number;
+  size: number;
+  thumbnail?: string;
+}
 
 export interface ProjectData {
   version: number;
@@ -11,15 +26,18 @@ export interface ProjectData {
   fitMode: string;
   tracks: any[];
   clips: any[];
+  media: SavedMedia[];
   zoomLevel: number;
   currentFrame: number;
   snapEnabled: boolean;
 }
 
+const SERVER_URL = 'http://localhost:3456';
+
 export function serializeProject(name: string): ProjectData {
   const s = useEditorStore.getState();
   return {
-    version: 1,
+    version: 2,
     name,
     savedAt: new Date().toISOString(),
     fps: s.fps,
@@ -30,11 +48,22 @@ export function serializeProject(name: string): ProjectData {
     tracks: s.tracks,
     clips: s.clips.map(c => {
       const clone = { ...c };
-      // Don't save blob URLs — they won't work after reload
       if (clone.src?.startsWith('blob:')) delete clone.src;
       if (clone.previewUrl?.startsWith('blob:')) delete clone.previewUrl;
       return clone;
     }),
+    media: s.mediaItems.map(m => ({
+      id: m.id,
+      name: m.name,
+      type: m.type,
+      localPath: m.localPath || '',
+      url: m.url || '',
+      duration: m.duration,
+      width: m.width || 0,
+      height: m.height || 0,
+      size: m.size,
+      thumbnail: m.thumbnail || '',
+    })),
     zoomLevel: s.zoomLevel,
     currentFrame: s.currentFrame,
     snapEnabled: s.snapEnabled,
@@ -43,8 +72,53 @@ export function serializeProject(name: string): ProjectData {
 
 export function deserializeProject(data: ProjectData) {
   const s = useEditorStore.getState();
+
+  // Restore media items first
+  if (data.media && data.media.length > 0) {
+    const restoredMedia: MediaItem[] = data.media.map(m => {
+      // Rebuild server URL from localPath
+      const serverUrl = m.localPath
+        ? `${SERVER_URL}/media/${encodeURIComponent(m.localPath.split(/[/\\]/).pop() || m.name)}`
+        : m.url;
+      return {
+        id: m.id,
+        name: m.name,
+        type: m.type,
+        url: serverUrl,
+        objectUrl: serverUrl,
+        localPath: m.localPath,
+        duration: m.duration,
+        width: m.width,
+        height: m.height,
+        thumbnail: m.thumbnail || '',
+        size: m.size,
+      };
+    });
+    // Replace media items in store
+    s.clearMedia();
+    for (const item of restoredMedia) {
+      s.addMediaItem(item);
+    }
+  } else {
+    s.clearMedia();
+  }
+
+  // Restore clips - rebuild src from media
+  const mediaMap = new Map<string, MediaItem>();
+  useEditorStore.getState().mediaItems.forEach(m => mediaMap.set(m.id, m));
+
+  const restoredClips = (data.clips || []).map((c: any) => {
+    const clone = { ...c };
+    // If clip has no src, rebuild from mediaId
+    if (!clone.src && clone.mediaId && mediaMap.has(clone.mediaId)) {
+      const media = mediaMap.get(clone.mediaId)!;
+      clone.src = media.url || media.objectUrl || '';
+    }
+    return clone;
+  });
+
   s.setTracks(data.tracks);
-  s.setClips(data.clips);
+  s.setClips(restoredClips);
   s.setFps(data.fps);
   s.setProjectSize(data.projectWidth, data.projectHeight);
   s.setAspectPreset(data.aspectPreset as AspectPreset);
@@ -64,7 +138,7 @@ export function saveProjectToFile(name: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${name.replace(/[^a-zA-Z0-9가-힣_-]/g, '_')}.flowcut`;
+  a.download = `${name.replace(/[^a-zA-Z0-9_-]/g, '_')}.flowcut`;
   a.click();
   URL.revokeObjectURL(url);
 }

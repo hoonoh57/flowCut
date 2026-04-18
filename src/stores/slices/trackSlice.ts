@@ -1,10 +1,10 @@
-﻿import type { StateCreator } from 'zustand';
+import type { StateCreator } from 'zustand';
 import type { Track } from '../../types/track';
 import type { EditorStore } from '../editorStore';
 
 const defaultTracks: Track[] = [
-  { id: 'v1', name: '비디오 1', type: 'video', order: 500, height: 60, color: '#3b82f6', locked: false, visible: true },
-  { id: 'a1', name: '오디오 1', type: 'audio', order: 100, height: 60, color: '#22c55e', locked: false, visible: true },
+  { id: 'v1', name: 'Video 1', type: 'video', order: 500, height: 80, color: '#3b82f6', locked: false, visible: true },
+  { id: 'a1', name: 'Audio 1', type: 'audio', order: 100, height: 60, color: '#22c55e', locked: false, visible: true },
 ];
 
 export interface TrackSlice {

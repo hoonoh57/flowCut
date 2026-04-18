@@ -1,18 +1,17 @@
-﻿import React from 'react';
+import React from 'react';
 import { theme } from '../../styles/theme';
 import { useEditorStore } from '../../stores/editorStore';
-import type { Track } from '../../stores/slices/trackSlice';
-
-const TRACK_HEIGHT = 60;
+import type { Track } from '../../types/track';
+import { getTrackHeight } from './TrackLane';
 
 interface TrackLabelProps {
   track: Track;
 }
 
 export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
-  const dispatch = useEditorStore((s) => s.dispatch);
   const setTracks = useEditorStore((s) => s.setTracks);
   const tracks = useEditorStore((s) => s.tracks);
+  const trackH = getTrackHeight(track.type);
 
   const typeColor = track.type === 'video'
     ? theme.colors.track.video
@@ -29,7 +28,7 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
 
   return (
     <div style={{
-      height: TRACK_HEIGHT,
+      height: trackH,
       display: 'flex',
       alignItems: 'center',
       padding: '0 8px',
