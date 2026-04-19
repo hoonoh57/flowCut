@@ -129,20 +129,9 @@ export const TextPanel: React.FC = () => {
           height: plan.height || 720,
         });
 
-        if (result.imageUrl) {
-          setExecutionLog(prev => [...prev, '✅ 이미지 생성 완료']);
-
-          // Download and upload to FlowCut server
-          const imgResp = await fetch(result.imageUrl);
-          const imgBlob = await imgResp.blob();
-          const formData = new FormData();
-          formData.append('file', imgBlob, 'ai_image_' + Date.now() + '.png');
-          const uploadResp = await fetch('http://localhost:3456/api/upload', { method: 'POST', body: formData });
-          const uploadData = await uploadResp.json();
-
-          if (uploadData.success) {
-            setExecutionLog(prev => [...prev, '📁 FlowCut에 업로드 완료: ' + uploadData.servePath]);
-          }
+        if (result.imageUrl || result.servePath) {
+          setExecutionLog(prev => [...prev, '✅ 이미지 생성 완료!']);
+          setExecutionLog(prev => [...prev, '📁 저장됨: ' + (result.servePath || result.imageUrl)]);
 
           // If imageWithText, also add text clip
           if (plan.action === 'imageWithText' && plan.text) {

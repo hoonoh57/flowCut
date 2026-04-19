@@ -641,24 +641,160 @@ app.post('/api/script', async (req, res) => {
 });
 
 
+// === ComfyUI Direct Generate (server builds workflow) ===
+app.post('/api/comfyui/generate', async (req, res) => {
+  const { workflowId, positive, negative, width, height, seed } = req.body;
+  console.log('[COMFY-GEN] workflowId:', workflowId, 'prompt:', (positive||'').substring(0,60));
+  
+  // Load workflow template
+  const wfPath = path.join(__dirname, '..', 'src', 'config', 'workflows', workflowId + '.json');
+  if (!fs.existsSync(wfPath)) {
+    return res.json({ error: 'Workflow not found: ' + workflowId });
+  }
+  const template = JSON.parse(fs.readFileSync(wfPath, 'utf8'));
+  
+  if (template.engine === 'canvas') {
+    return res.json({ error: 'Canvas workflows handled client-side' });
+  }
+  
+  // Deep clone workflow and fill params
+  const workflow = JSON.parse(JSON.stringify(template.workflow));
+  for (const [nodeId, node] of Object.entries(workflow)) {
+    if (node.inputs) {
+      for (const [key, val] of Object.entries(node.inputs)) {
+        if (typeof val === 'string' && val === '{{positive}}') {
+          node.inputs[key] = positive || 'beautiful image';
+        }
+        if (typeof val === 'string' && val === '{{negative}}') {
+          node.inputs[key] = negative || 'blurry, ugly';
+        }
+      }
+      // Override dimensions
+      if (node.class_type === 'EmptyLatentImage') {
+        if (width) node.inputs.width = width;
+        if (height) node.inputs.height = height;
+      }
+      // Random seed
+      if (node.class_type === 'KSampler') {
+        node.inputs.seed = seed || Math.floor(Math.random() * 1e15);
+      }
+    }
+  }
+  
+  console.log('[COMFY-GEN] Workflow nodes:', Object.keys(workflow));
+  console.log('[COMFY-GEN] Submitting to ComfyUI...');
+  
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const payload = JSON.stringify({ prompt: workflow });
+    console.log('[COMFY-GEN] Payload size:', payload.length, 'bytes');
+    
+    const queueResp = await fetch('http://127.0.0.1:8188/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+      signal: AbortSignal.timeout(30000),
+    });
+    
+    const queueText = await queueResp.text();
+    console.log('[COMFY-GEN] Queue response:', queueText.substring(0, 300));
+    
+    let queueData;
+    try { queueData = JSON.parse(queueText); } catch { 
+      return res.json({ error: 'Invalid response from ComfyUI', raw: queueText.substring(0, 200) }); 
+    }
+    
+    if (queueData.error) {
+      console.log('[COMFY-GEN] ComfyUI error:', JSON.stringify(queueData.error).substring(0, 500));
+      return res.json({ error: 'ComfyUI rejected: ' + JSON.stringify(queueData.error).substring(0, 200) });
+    }
+    
+    const promptId = queueData.prompt_id;
+    if (!promptId) {
+      return res.json({ error: 'No prompt_id returned', data: queueData });
+    }
+    console.log('[COMFY-GEN] prompt_id:', promptId);
+    
+    // Poll for completion (up to 180s)
+    for (let i = 0; i < 90; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        const histResp = await fetch('http://127.0.0.1:8188/history/' + promptId);
+        const histData = await histResp.json();
+        const entry = histData[promptId];
+        if (!entry) continue;
+        
+        for (const [nodeId, output] of Object.entries(entry.outputs || {})) {
+          if (output.images && output.images.length > 0) {
+            const img = output.images[0];
+            console.log('[COMFY-GEN] Image ready:', img.filename);
+            
+            // Download image from ComfyUI and save to media_cache
+            const imgUrl = 'http://127.0.0.1:8188/view?filename=' + encodeURIComponent(img.filename) 
+              + '&subfolder=' + encodeURIComponent(img.subfolder || '') 
+              + '&type=' + (img.type || 'output');
+            const imgResp = await fetch(imgUrl);
+            const imgBuffer = Buffer.from(await imgResp.arrayBuffer());
+            const localName = 'ai_' + Date.now() + '_' + img.filename;
+            const localPath = path.join('E:\\2026\\flowcut\\media_cache', localName);
+            fs.writeFileSync(localPath, imgBuffer);
+            console.log('[COMFY-GEN] Saved to:', localPath);
+            
+            return res.json({ 
+              success: true, 
+              promptId,
+              imageFilename: img.filename,
+              localPath,
+              servePath: '/media/' + localName,
+              serverUrl: 'http://localhost:3456/media/' + localName,
+            });
+          }
+        }
+      } catch (pollErr) {
+        console.log('[COMFY-GEN] Poll error:', pollErr.message);
+      }
+    }
+    
+    return res.json({ error: 'Generation timed out (180s)', promptId });
+    
+  } catch (err) {
+    console.log('[COMFY-GEN] Fatal error:', err.message);
+    return res.json({ error: err.message });
+  }
+});
+
+
 // === ComfyUI Proxy (CORS bypass) ===
 app.post('/api/comfyui/prompt', async (req, res) => {
   try {
     const fetch = (await import('node-fetch')).default;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
+    const payload = JSON.stringify(req.body);
+    console.log('[COMFY-PROXY] Received prompt request, payload size:', payload.length);
+    console.log('[COMFY-PROXY] Keys:', Object.keys(req.body));
+    console.log('[COMFY-PROXY] Has prompt key:', !!req.body.prompt);
+    if (req.body.prompt) {
+      console.log('[COMFY-PROXY] Node IDs:', Object.keys(req.body.prompt));
+    }
+    
     const resp = await fetch('http://127.0.0.1:8188/prompt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.body),
-      signal: controller.signal,
+      body: payload,
+      signal: AbortSignal.timeout(180000),
     });
-    clearTimeout(timeout);
-    const data = await resp.json();
-    console.log('[COMFY] Prompt submitted:', data.prompt_id);
-    res.json(data);
+    
+    const text = await resp.text();
+    console.log('[COMFY-PROXY] ComfyUI response status:', resp.status);
+    console.log('[COMFY-PROXY] ComfyUI response:', text.substring(0, 500));
+    
+    try {
+      const data = JSON.parse(text);
+      res.json(data);
+    } catch {
+      res.json({ error: 'Invalid JSON from ComfyUI', raw: text.substring(0, 200) });
+    }
   } catch (err) {
-    console.log('[COMFY] Prompt error:', err.message);
+    console.log('[COMFY-PROXY] Error:', err.message);
     res.json({ error: err.message });
   }
 });

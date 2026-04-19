@@ -143,85 +143,37 @@ export async function analyzeAndPlan(userPrompt: string): Promise<CreativePlan> 
 export async function executeComfyWorkflow(
   workflowId: string,
   params: Record<string, any>
-): Promise<{ imageUrl?: string; videoUrl?: string; localPath?: string }> {
-  const comfyUrl = 'http://localhost:3456/api/comfyui';
-
-  // Load workflow template
-  const resp = await fetch('http://localhost:3456/config/workflows/' + workflowId + '.json');
-  if (!resp.ok) throw new Error('Workflow not found: ' + workflowId);
-  const template = await resp.json();
-
-  if (template.engine === 'canvas') {
-    // Canvas-based rendering handled separately
-    return { localPath: '' };
-  }
-
-  // Deep clone and fill parameters
-  const workflow = JSON.parse(JSON.stringify(template.workflow));
-  for (const [nodeId, node] of Object.entries(workflow) as any[]) {
-    if (node.inputs) {
-      for (const [key, val] of Object.entries(node.inputs)) {
-        if (typeof val === 'string' && val.startsWith('{{') && val.endsWith('}}')) {
-          const paramName = val.slice(2, -2);
-          if (params[paramName] !== undefined) {
-            node.inputs[key] = params[paramName];
-          }
-        }
-      }
-    }
-    // Override dimensions if provided
-    if (node.class_type === 'EmptyLatentImage') {
-      if (params.width) node.inputs.width = params.width;
-      if (params.height) node.inputs.height = params.height;
-    }
-    // Random seed
-    if (node.class_type === 'KSampler' && node.inputs.seed === -1) {
-      node.inputs.seed = Math.floor(Math.random() * 1e15);
-    }
-  }
-
-  // Submit to ComfyUI
-  const queueResp = await fetch('http://localhost:3456/api/comfyui/prompt', {
+): Promise<{ imageUrl?: string; videoUrl?: string; localPath?: string; servePath?: string }> {
+  // Use server-side generate endpoint (handles ComfyUI communication)
+  const resp = await fetch('http://localhost:3456/api/comfyui/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt: workflow }),
+    body: JSON.stringify({
+      workflowId,
+      positive: params.positive || '',
+      negative: params.negative || 'blurry, ugly, distorted, low quality',
+      width: params.width,
+      height: params.height,
+    }),
+    signal: AbortSignal.timeout(200000), // 200s total
   });
-  if (!queueResp.ok) throw new Error('ComfyUI queue error: ' + queueResp.status);
-  const queueData = await queueResp.json();
-  const promptId = queueData.prompt_id;
 
-  // Poll for result
-  for (let i = 0; i < 180; i++) {
-    await new Promise(r => setTimeout(r, 1000));
-    try {
-      const histResp = await fetch('http://localhost:3456/api/comfyui/history/' + promptId);
-      const histData = await histResp.json();
-      const entry = histData[promptId];
-      if (!entry) continue;
-
-      // Find output images
-      for (const [nodeId, output] of Object.entries(entry.outputs || {}) as any[]) {
-        if (output.images && output.images.length > 0) {
-          const img = output.images[0];
-          const imageUrl = 'http://localhost:3456/api/comfyui/view?filename=' + encodeURIComponent(img.filename)
-            + '&subfolder=' + encodeURIComponent(img.subfolder || '')
-            + '&type=' + (img.type || 'output');
-          return { imageUrl };
-        }
-        if (output.gifs && output.gifs.length > 0) {
-          const vid = output.gifs[0];
-          const videoUrl = 'http://localhost:3456/api/comfyui/view?filename=' + encodeURIComponent(vid.filename)
-            + '&subfolder=' + encodeURIComponent(vid.subfolder || '')
-            + '&type=' + (vid.type || 'output');
-          return { videoUrl };
-        }
-      }
-    } catch {}
+  const data = await resp.json();
+  
+  if (data.error) {
+    throw new Error('ComfyUI: ' + data.error);
   }
-
-  throw new Error('ComfyUI generation timed out (180s)');
+  
+  if (data.success) {
+    return {
+      imageUrl: data.serverUrl,
+      localPath: data.localPath,
+      servePath: data.servePath,
+    };
+  }
+  
+  throw new Error('ComfyUI: unexpected response');
 }
-
 // Render infographic/table layout to PNG via Canvas
 export function renderInfographic(
   layout: LayoutData,
