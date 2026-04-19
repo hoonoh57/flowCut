@@ -114,13 +114,13 @@ export const ExportPanel: React.FC = () => {
   // Local FFmpeg export
   const startLocalExport = async () => {
     // Pre-render text clips as PNG images
-    const allClips = tracks.flatMap(t => t.clips);
-    const textClips = allClips.filter(c => c.type === 'text');
-    const textImagePaths = await uploadTextAsImages(textClips);
-    addExportLog('Text images: ' + textImagePaths.size + ' uploaded');
-
     if (maxFrame === 0) return;
     clearExportLog(); setIsExporting(true); setExportProgress(0); setResultPath('');
+
+    // Pre-render text clips as PNG images
+    const textClips = clips.filter(c => c && c.type === 'text');
+    const textImagePaths = await uploadTextAsImages(textClips);
+    addExportLog('Text images: ' + textImagePaths.size + ' uploaded');
     const out = getOutputSize();
 
     addExportLog('=== 로컬 FFmpeg 내보내기 ===');

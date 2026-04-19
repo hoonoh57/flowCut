@@ -54,6 +54,8 @@ export function createTextClip(
     fontSize: style?.fontSize || 48,
     fontColor: style?.fontColor || '#ffffff',
     fontFamily: style?.fontFamily || 'sans-serif',
+    x: 560,
+    y: 440,
     width: 800,
     height: 200,
     ...overrides,

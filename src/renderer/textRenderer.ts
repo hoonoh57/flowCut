@@ -10,6 +10,22 @@
  * No CSS. No FFmpeg drawtext. One renderer. Pixel-perfect match.
  */
 
+function containsKorean(text: string): boolean {
+  return /[\uAC00-\uD7AF\u3131-\u3163\u318E]/.test(text);
+}
+
+function ensureKoreanFont(fontFamily: string, text: string): string {
+  if (!containsKorean(text)) return fontFamily;
+  // If the font doesn't support Korean, prepend Malgun Gothic
+  const koreanUnsafe = ['Impact', 'Arial Black', 'Courier New', 'Georgia', 'Times New Roman', 'Comic Sans MS'];
+  const base = fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+  if (koreanUnsafe.some(f => f.toLowerCase() === base.toLowerCase())) {
+    return "'Malgun Gothic', " + fontFamily;
+  }
+  // If it already has a Korean-safe font, keep it
+  return fontFamily;
+}
+
 export function renderTextClip(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   clip: Clip,
@@ -20,7 +36,7 @@ export function renderTextClip(
   if (!text) return;
 
   const fontSize = clip.fontSize || 48;
-  const fontFamily = clip.fontFamily || 'Malgun Gothic, sans-serif';
+  const fontFamily = ensureKoreanFont(clip.fontFamily || 'Malgun Gothic, sans-serif', text);
   const fontWeight = clip.fontWeight || 'normal';
   const fontStyle = clip.fontStyle || 'normal';
   const fontColor = clip.fontColor || '#ffffff';
