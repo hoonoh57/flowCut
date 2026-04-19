@@ -234,8 +234,6 @@ export function RightPanel() {
         </>
       )}
       
-        </>
-      )}
 
       {/* ════ VISUAL EFFECTS ════ */}
       {(sc.type === 'video' || sc.type === 'image') && (
