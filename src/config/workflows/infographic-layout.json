@@ -1,0 +1,13 @@
+{
+  "id": "infographic-layout",
+  "name": "Infographic / Table Layout",
+  "description": "Generate table, comparison, or infographic layout using Canvas renderer",
+  "vramRequired": 0,
+  "estimatedTime": "1-2s",
+  "engine": "canvas",
+  "params": {
+    "layout": "object",
+    "title": "string",
+    "items": "array"
+  }
+}

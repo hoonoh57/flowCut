@@ -1,0 +1,98 @@
+{
+  "id": "title-card",
+  "name": "Title Card Image",
+  "description": "Generate stylized title card / thumbnail image",
+  "vramRequired": 6,
+  "estimatedTime": "8-15s",
+  "workflow": {
+    "3": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": -1,
+        "steps": 6,
+        "cfg": 2,
+        "sampler_name": "euler",
+        "scheduler": "sgm_uniform",
+        "denoise": 1,
+        "model": [
+          "4",
+          0
+        ],
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "5",
+          0
+        ]
+      }
+    },
+    "4": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "RealVisXL_V4.0_Lightning.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1280,
+        "height": 720,
+        "batch_size": 1
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "{{positive}}",
+        "clip": [
+          "4",
+          1
+        ]
+      }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "text, watermark, blurry, ugly, distorted, low quality",
+        "clip": [
+          "4",
+          1
+        ]
+      }
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "3",
+          0
+        ],
+        "vae": [
+          "4",
+          2
+        ]
+      }
+    },
+    "9": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": "flowcut_title",
+        "images": [
+          "8",
+          0
+        ]
+      }
+    }
+  },
+  "params": {
+    "positive": "string",
+    "width": "number?",
+    "height": "number?"
+  }
+}

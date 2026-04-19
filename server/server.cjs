@@ -640,6 +640,61 @@ app.post('/api/script', async (req, res) => {
   }
 });
 
+
+// === ComfyUI Proxy (CORS bypass) ===
+app.post('/api/comfyui/prompt', async (req, res) => {
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const resp = await fetch('http://127.0.0.1:8188/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+    const data = await resp.json();
+    res.json(data);
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+app.get('/api/comfyui/history/:promptId', async (req, res) => {
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const resp = await fetch('http://127.0.0.1:8188/history/' + req.params.promptId);
+    const data = await resp.json();
+    res.json(data);
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+app.get('/api/comfyui/view', async (req, res) => {
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const qs = new URLSearchParams(req.query).toString();
+    const resp = await fetch('http://127.0.0.1:8188/view?' + qs);
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    res.set('Content-Type', resp.headers.get('content-type') || 'image/png');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/comfyui/health', async (req, res) => {
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const resp = await fetch('http://127.0.0.1:8188/system_stats', { signal: AbortSignal.timeout(3000) });
+    const data = await resp.json();
+    res.json({ online: true, ...data });
+  } catch (err) {
+    res.json({ online: false, error: err.message });
+  }
+});
+
+// Serve workflow templates
+app.use('/config/workflows', express.static(path.join(__dirname, '..', 'src', 'config', 'workflows')));
+
 const PORT = 3456;
 app.listen(PORT, () => {
   console.log('');
