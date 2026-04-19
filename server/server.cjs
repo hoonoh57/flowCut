@@ -287,14 +287,74 @@ app.post('/api/export', async (req, res) => {
       const sx = ow / projectWidth, sy = oh / projectHeight;
       const tx = Math.round((clip.x || 0) * sx);
       const ty = Math.round((clip.y || 0) * sy);
+      const clipW = Math.round((clip.clipWidth || projectWidth) * sx);
       const fontSize = Math.round((clip.fontSize || 48) * sy);
-      const fontColor = (clip.fontColor || '#ffffff').replace('#', '0x');
+
+      // Font resolution
+      const isBold = clip.fontWeight === 'bold' || clip.fontWeight === '700';
+      const fontPath = resolveFontPath(clip.fontFamily || 'sans-serif', isBold).replace(/:/g, '\\\\:');
+
+      // Font color
+      let fontColor = (clip.fontColor || '#ffffff').replace('#', '0x');
+
+      // Build drawtext parts
+      const dtParts = [];
+      dtParts.push('fontfile=' + fontPath);
+      const escapedPath = textFilePath.replace(/\\/g, '/').replace(/:/g, '\\\\:');
+      dtParts.push('textfile=' + escapedPath);
+      dtParts.push('fontsize=' + fontSize);
+      dtParts.push('fontcolor=' + fontColor);
+
+      // X position with alignment
+      const align = clip.textAlign || 'center';
+      if (align === 'center' && clipW > 0) {
+        dtParts.push('x=' + Math.round(tx + clipW/2) + '-text_w/2');
+      } else if (align === 'right' && clipW > 0) {
+        dtParts.push('x=' + Math.round(tx + clipW) + '-text_w');
+      } else {
+        dtParts.push('x=' + tx);
+      }
+      dtParts.push('y=' + ty);
+
+      // Background box
+      const bgOpacity = (clip.textBgOpacity || 0) / 100;
+      if (bgOpacity > 0 && clip.textBgColor) {
+        let bgHex = (clip.textBgColor || '#000000').replace('#', '0x');
+        dtParts.push('box=1');
+        dtParts.push('boxcolor=' + bgHex + '@' + bgOpacity.toFixed(2));
+        dtParts.push('boxborderw=' + Math.max(6, Math.round(fontSize * 0.15)));
+      }
+
+      // Text outline (border)
+      if (clip.borderWidth && clip.borderWidth > 0) {
+        let bCol = (clip.borderColor || '#000000').replace('#', '0x');
+        dtParts.push('borderw=' + Math.round(clip.borderWidth * sy));
+        dtParts.push('bordercolor=' + bCol);
+      }
+
+      // Shadow
+      if ((clip.shadowX && clip.shadowX !== 0) || (clip.shadowY && clip.shadowY !== 0)) {
+        let sCol = (clip.shadowColor || '#000000').replace('#', '0x');
+        dtParts.push('shadowcolor=' + sCol + '@0.7');
+        dtParts.push('shadowx=' + Math.round((clip.shadowX || 0) * sx));
+        dtParts.push('shadowy=' + Math.round((clip.shadowY || 2) * sy));
+      }
+
+      // Line spacing
+      if (clip.lineHeight && clip.lineHeight !== 1.2) {
+        dtParts.push('line_spacing=' + Math.round((clip.lineHeight - 1.0) * fontSize));
+      }
+
+      // Opacity (alpha)
+      if (clip.opacity !== undefined && clip.opacity < 100) {
+        dtParts.push('alpha=' + (clip.opacity / 100).toFixed(2));
+      }
+
+      // Enable time range
+      dtParts.push("enable='between(t," + startSec + "," + endSec + ")'");
 
       const dtLabel = 'dt' + overlayCount;
-      // textfile path escaped for filter_complex_script (no shell quoting needed)
-      const escapedPath = textFilePath.replace(/\\/g, '/').replace(/:/g, '\\\\:');
-      const fontPath = DEFAULT_FONT.replace(/:/g, '\\\\:');
-      const dtFilter = lastVideo + 'drawtext=fontfile=' + fontPath + ':textfile=' + escapedPath + ':x=' + tx + ':y=' + ty + ':fontsize=' + fontSize + ':fontcolor=' + fontColor + ":enable='between(t," + startSec + "," + endSec + ")'[" + dtLabel + ']';
+      const dtFilter = lastVideo + 'drawtext=' + dtParts.join(':') + '[' + dtLabel + ']';
       filterParts.push(dtFilter);
 
       lastVideo = '[' + dtLabel + ']';
