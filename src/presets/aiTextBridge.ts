@@ -163,6 +163,14 @@ export async function generateAIContent(
   return textResult;
 }
 
+async function silentFetch(url: string, timeout = 2000): Promise<Response | null> {
+  try {
+    return await fetch(url, { signal: AbortSignal.timeout(timeout) });
+  } catch {
+    return null;
+  }
+}
+
 export async function checkOllamaHealth(): Promise<boolean> {
   try {
     const resp = await fetch(config.ollamaUrl + '/api/tags', { signal: AbortSignal.timeout(3000) });
