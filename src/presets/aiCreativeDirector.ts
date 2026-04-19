@@ -191,7 +191,7 @@ export async function executeComfyWorkflow(
   const promptId = queueData.prompt_id;
 
   // Poll for result
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 180; i++) {
     await new Promise(r => setTimeout(r, 1000));
     try {
       const histResp = await fetch('http://localhost:3456/api/comfyui/history/' + promptId);
@@ -219,7 +219,7 @@ export async function executeComfyWorkflow(
     } catch {}
   }
 
-  throw new Error('ComfyUI generation timed out (120s)');
+  throw new Error('ComfyUI generation timed out (180s)');
 }
 
 // Render infographic/table layout to PNG via Canvas

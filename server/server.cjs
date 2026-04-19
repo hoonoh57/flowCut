@@ -645,14 +645,20 @@ app.post('/api/script', async (req, res) => {
 app.post('/api/comfyui/prompt', async (req, res) => {
   try {
     const fetch = (await import('node-fetch')).default;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
     const resp = await fetch('http://127.0.0.1:8188/prompt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
     const data = await resp.json();
+    console.log('[COMFY] Prompt submitted:', data.prompt_id);
     res.json(data);
   } catch (err) {
+    console.log('[COMFY] Prompt error:', err.message);
     res.json({ error: err.message });
   }
 });
