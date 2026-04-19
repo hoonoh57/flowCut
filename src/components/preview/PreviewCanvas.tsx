@@ -80,14 +80,48 @@ const ClipMedia: React.FC<{ clip: Clip; isPlaying: boolean; currentFrame: number
       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />;
   }
   if (clip.type === 'text') {
+    const bgOpacity = (clip.textBgOpacity ?? 0) / 100;
+    const bgColor = clip.textBgColor || '#000000';
+    const r = parseInt(bgColor.slice(1,3),16), g = parseInt(bgColor.slice(3,5),16), b = parseInt(bgColor.slice(5,7),16);
+    const bgRgba = bgOpacity > 0 ? 'rgba(' + r + ',' + g + ',' + b + ',' + bgOpacity + ')' : 'transparent';
+
+    const borderW = clip.borderWidth ?? 0;
+    const borderCol = clip.borderColor || '#000000';
+    const borderStyle = borderW > 0 ? borderW + 'px solid ' + borderCol : 'none';
+
+    const shadowCol = clip.shadowColor || '#000000';
+    const shadowXv = clip.shadowX ?? 0;
+    const shadowYv = clip.shadowY ?? 2;
+    const textShadowStr = (shadowXv || shadowYv) ? shadowXv + 'px ' + shadowYv + 'px 4px ' + shadowCol : '0 2px 8px rgba(0,0,0,0.8)';
+
+    const fontW = clip.fontWeight || 'normal';
+    const fontS = clip.fontStyle || 'normal';
+    const tAlign = clip.textAlign || 'center';
+    const lineH = clip.lineHeight ?? 1.2;
+
     return (
       <div style={{
-        width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: clip.fontSize || 48, fontFamily: clip.fontFamily || 'sans-serif',
-        color: clip.fontColor || '#fff', textShadow: '0 2px 8px rgba(0,0,0,0.8)',
-        wordBreak: 'break-word', textAlign: 'center', padding: 8,
+        width: '100%', height: '100%', display: 'flex',
+        alignItems: tAlign === 'center' ? 'center' : 'flex-start',
+        justifyContent: tAlign === 'right' ? 'flex-end' : tAlign === 'center' ? 'center' : 'flex-start',
       }}>
-        {clip.text || clip.name}
+        <div style={{
+          fontSize: clip.fontSize || 48,
+          fontFamily: clip.fontFamily || 'sans-serif',
+          fontWeight: fontW,
+          fontStyle: fontS,
+          color: clip.fontColor || '#fff',
+          textShadow: textShadowStr,
+          textAlign: tAlign as any,
+          lineHeight: lineH,
+          wordBreak: 'break-word',
+          padding: 8,
+          backgroundColor: bgRgba,
+          border: borderStyle,
+          borderRadius: bgOpacity > 0 ? 4 : 0,
+        }}>
+          {clip.text || clip.name}
+        </div>
       </div>
     );
   }
