@@ -144,10 +144,10 @@ export async function executeComfyWorkflow(
   workflowId: string,
   params: Record<string, any>
 ): Promise<{ imageUrl?: string; videoUrl?: string; localPath?: string }> {
-  const comfyUrl = getAIBridgeConfig().comfyuiUrl;
+  const comfyUrl = 'http://localhost:3456/api/comfyui';
 
   // Load workflow template
-  const resp = await fetch('/config/workflows/' + workflowId + '.json');
+  const resp = await fetch('http://localhost:3456/config/workflows/' + workflowId + '.json');
   if (!resp.ok) throw new Error('Workflow not found: ' + workflowId);
   const template = await resp.json();
 
@@ -181,7 +181,7 @@ export async function executeComfyWorkflow(
   }
 
   // Submit to ComfyUI
-  const queueResp = await fetch(comfyUrl + '/prompt', {
+  const queueResp = await fetch('http://localhost:3456/api/comfyui/prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt: workflow }),
@@ -194,7 +194,7 @@ export async function executeComfyWorkflow(
   for (let i = 0; i < 120; i++) {
     await new Promise(r => setTimeout(r, 1000));
     try {
-      const histResp = await fetch(comfyUrl + '/history/' + promptId);
+      const histResp = await fetch('http://localhost:3456/api/comfyui/history/' + promptId);
       const histData = await histResp.json();
       const entry = histData[promptId];
       if (!entry) continue;
@@ -203,14 +203,14 @@ export async function executeComfyWorkflow(
       for (const [nodeId, output] of Object.entries(entry.outputs || {}) as any[]) {
         if (output.images && output.images.length > 0) {
           const img = output.images[0];
-          const imageUrl = comfyUrl + '/view?filename=' + encodeURIComponent(img.filename)
+          const imageUrl = 'http://localhost:3456/api/comfyui/view?filename=' + encodeURIComponent(img.filename)
             + '&subfolder=' + encodeURIComponent(img.subfolder || '')
             + '&type=' + (img.type || 'output');
           return { imageUrl };
         }
         if (output.gifs && output.gifs.length > 0) {
           const vid = output.gifs[0];
-          const videoUrl = comfyUrl + '/view?filename=' + encodeURIComponent(vid.filename)
+          const videoUrl = 'http://localhost:3456/api/comfyui/view?filename=' + encodeURIComponent(vid.filename)
             + '&subfolder=' + encodeURIComponent(vid.subfolder || '')
             + '&type=' + (vid.type || 'output');
           return { videoUrl };
