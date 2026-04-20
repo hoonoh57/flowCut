@@ -1,7 +1,7 @@
 ﻿import type { StateCreator } from 'zustand';
 import type { EditorStore } from '../editorStore';
 
-export type LeftPanelTab = 'media' | 'text' | 'effects' | 'transitions' | 'audio' | 'ai' | 'project' | 'export';
+export type LeftPanelTab = 'media' | 'text' | 'effects' | 'transitions' | 'audio' | 'ai' | 'project' | 'export' | 'script';
 
 export interface UISlice {
   leftPanelTab: LeftPanelTab;

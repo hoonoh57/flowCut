@@ -882,6 +882,45 @@ app.get('/api/comfyui/health', async (req, res) => {
 // Serve workflow templates
 app.use('/config/workflows', express.static(path.join(__dirname, '..', 'src', 'config', 'workflows')));
 
+
+// =========================================================================
+// FlowScript Execution API
+// =========================================================================
+app.post('/api/script/execute', async (req, res) => {
+  const { script } = req.body;
+  console.log('[FLOWSCRIPT] Execute request');
+  if (!script || !script.version || !script.clips) return res.json({ success: false, error: 'Invalid FlowScript' });
+  const log = ['[Server] FlowScript v' + script.version, '[Server] ' + script.project.width + 'x' + script.project.height + ' @ ' + script.project.fps + 'fps', '[Server] Clips: ' + script.clips.length, '[Server] Actions: ' + (script.actions || []).length];
+  const errors = [];
+  for (const act of (script.actions || [])) {
+    if (act.action === 'export') log.push('[Server] Export delegated to /api/export');
+    if (act.action === 'upload') log.push('[Server] Upload to ' + act.platform + ' (OAuth needed)');
+  }
+  res.json({ success: errors.length === 0, log, errors });
+});
+
+app.get('/api/script/templates', (req, res) => {
+  res.json({ success: true, templates: [
+    { id: 'youtube-shorts', name: 'YouTube Shorts (9:16)', script: { version: '1.0', project: { width: 1080, height: 1920, fps: 30, aspectPreset: '9:16' }, tracks: [{ id: 'v1', name: 'Video', type: 'video' }, { id: 't1', name: 'Text', type: 'text' }], clips: [{ type: 'text', trackId: 't1', startFrame: 0, durationFrames: 90, text: 'Title Here' }], actions: [{ action: 'export', format: 'mp4' }] } },
+    { id: 'slideshow', name: 'Photo Slideshow (16:9)', script: { version: '1.0', project: { width: 1920, height: 1080, fps: 30 }, tracks: [{ id: 'v1', name: 'Video', type: 'video' }], clips: [], actions: [] } },
+    { id: 'ai-video', name: 'AI Generated Video', script: { version: '1.0', project: { width: 1024, height: 1024, fps: 30 }, media: [{ id: 'ai1', type: 'image', src: 'ai://beautiful sunset', aiWorkflow: 'flux-schnell' }], tracks: [{ id: 'v1', name: 'Video', type: 'video' }], clips: [{ type: 'image', mediaId: 'ai1', trackId: 'v1', startFrame: 0, durationFrames: 150 }], actions: [{ action: 'export', format: 'mp4' }] } },
+  ] });
+});
+
+app.post('/api/script/validate', (req, res) => {
+  const { script } = req.body;
+  const errors = [];
+  if (!script) errors.push('No script');
+  else {
+    if (script.version !== '1.0') errors.push('version must be 1.0');
+    if (!script.project) errors.push('project required');
+    else { if (!script.project.width || !script.project.height) errors.push('project.width/height required'); if (!script.project.fps) errors.push('project.fps required'); }
+    if (!Array.isArray(script.clips)) errors.push('clips must be array');
+    else script.clips.forEach(function(c, i) { if (!c.type) errors.push('clips[' + i + '].type required'); if (c.startFrame === undefined) errors.push('clips[' + i + '].startFrame required'); if (!c.durationFrames) errors.push('clips[' + i + '].durationFrames required'); });
+  }
+  res.json({ valid: errors.length === 0, errors: errors });
+});
+
 const PORT = 3456;
 app.listen(PORT, () => {
   console.log('');

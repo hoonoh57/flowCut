@@ -12,6 +12,7 @@ import { TransitionsPanel } from '../panels/TransitionsPanel';
 import { AudioPanel } from '../panels/AudioPanel';
 import { AIPanel } from '../panels/AIPanel';
 import { ProjectPanel } from '../panels/ProjectPanel';
+import { ScriptConsole } from '../panels/ScriptConsole';
 import { ExportPanel } from '../export/ExportPanel';
 import type { LeftPanelTab } from '../../stores/slices/uiSlice';
 import type { MediaItem } from '../../stores/slices/mediaSlice';
@@ -25,6 +26,7 @@ const tabs: { key: LeftPanelTab; icon: string; label: string }[] = [
   { key: 'ai', icon: '🤖', label: 'AI' },
   { key: 'project', icon: '💾', label: '프로젝트' },
   { key: 'export', icon: '🎬', label: '내보내기' },
+  { key: 'script', icon: '📜', label: '스크립트' },
 ];
 
 function formatSize(bytes: number): string {
@@ -128,6 +130,7 @@ export function LeftPanel() {
       case 'ai': return <AIPanel />;
       case 'project': return <ProjectPanel />;
       case 'export': return <ExportPanel />;
+      case 'script': return <ScriptConsole />;
       default: return null;
     }
   };

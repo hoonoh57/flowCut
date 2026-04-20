@@ -67,9 +67,8 @@ export const TrackLabel: React.FC<TrackLabelProps> = ({ track }) => {
         whiteSpace: 'nowrap', userSelect: 'none',
       }}>
         {(() => {
-          const n = track.name;
-          return n
-            .replace(/^Video\s*/i, '비디오 ')
+          const n = track.name || "";
+          return (n || "").replace(/^Video\s*/i, '비디오 ')
             .replace(/^Audio\s*/i, '오디오 ')
             .replace(/^text\s*/i, '텍스트 ')
             .trim();

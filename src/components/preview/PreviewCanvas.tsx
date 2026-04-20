@@ -19,7 +19,7 @@ const HANDLE_SIZE = 8;
 function getClipDisplayRect(clip: Clip, pw: number, ph: number, fitMode: FitMode = 'fit') {
   const isDefault = clip.x === 0 && clip.y === 0 && (clip.width !== pw || clip.height !== ph);
   if (isDefault && (clip.type === 'video' || clip.type === 'image')) {
-    const clipAR = clip.width / clip.height;
+    const clipAR = (clip.height || 1) > 0 ? (clip.width || 1) / (clip.height || 1) : 1;
     const projAR = pw / ph;
     let dw: number, dh: number, dx: number, dy: number;
     if (fitMode === 'stretch') {
@@ -33,7 +33,7 @@ function getClipDisplayRect(clip: Clip, pw: number, ph: number, fitMode: FitMode
     }
     return { x: dx, y: dy, w: dw, h: dh, autoFit: true };
   }
-  return { x: clip.x, y: clip.y, w: clip.width, h: clip.height, autoFit: false };
+  return { x: clip.x || 0, y: clip.y || 0, w: clip.width || 1, h: clip.height || 1, autoFit: false };
 }
 
 function getClipOpacity(clip: Clip, currentFrame: number): number {
@@ -248,6 +248,7 @@ export const PreviewCanvas: React.FC = () => {
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const pw = useEditorStore((s) => s.projectWidth);
   const ph = useEditorStore((s) => s.projectHeight);
+  const safePw = pw || 1920, safePh = ph || 1080;
   const aspectPreset = useEditorStore((s) => s.aspectPreset);
   const setAspectPreset = useEditorStore((s) => s.setAspectPreset);
   const fitMode = useEditorStore((s) => s.fitMode);
@@ -265,8 +266,8 @@ export const PreviewCanvas: React.FC = () => {
     ro.observe(el); return () => ro.disconnect();
   }, []);
 
-  const scale = Math.min(containerSize.w / pw, containerSize.h / ph);
-  const displayW = pw * scale, displayH = ph * scale;
+  const scale = Math.min(containerSize.w / safePw, containerSize.h / safePh);
+  const displayW = safePw * scale, displayH = safePh * scale;
   const visibleClips = useMemo(() => getVisibleClips(clips, currentFrame), [clips, currentFrame]);
   const visibleIds = useMemo(() => new Set(visibleClips.map(v => v.clip.id)), [visibleClips]);
   const nextGuide = () => setGuideMode(GUIDE_MODES[(GUIDE_MODES.indexOf(guideMode) + 1) % GUIDE_MODES.length]);
@@ -284,15 +285,15 @@ export const PreviewCanvas: React.FC = () => {
         if (!selIds.includes(cl.id)) return cl;
         if (cl.type !== 'video' && cl.type !== 'image') return cl;
         const clipAR = cl.width / cl.height;
-        const projAR = pw / ph;
+        const projAR = safePw / safePh;
         let nx: number, ny: number, nw: number, nh: number;
-        if (next === 'stretch') { nw = pw; nh = ph; nx = 0; ny = 0; }
+        if (next === 'stretch') { nw = safePw; nh = safePh; nx = 0; ny = 0; }
         else if (next === 'fill') {
-          if (clipAR > projAR) { nh = ph; nw = Math.round(ph * clipAR); nx = Math.round((pw - nw) / 2); ny = 0; }
-          else { nw = pw; nh = Math.round(pw / clipAR); nx = 0; ny = Math.round((ph - nh) / 2); }
+          if (clipAR > projAR) { nh = safePh; nw = Math.round(safePh * clipAR); nx = Math.round((safePw - nw) / 2); ny = 0; }
+          else { nw = safePw; nh = Math.round(safePw / clipAR); nx = 0; ny = Math.round((safePh - nh) / 2); }
         } else {
-          if (clipAR > projAR) { nw = pw; nh = Math.round(pw / clipAR); nx = 0; ny = Math.round((ph - nh) / 2); }
-          else { nh = ph; nw = Math.round(ph * clipAR); nx = Math.round((pw - nw) / 2); ny = 0; }
+          if (clipAR > projAR) { nw = safePw; nh = Math.round(safePw / clipAR); nx = 0; ny = Math.round((safePh - nh) / 2); }
+          else { nh = safePh; nw = Math.round(safePh * clipAR); nx = Math.round((safePw - nw) / 2); ny = 0; }
         }
         const changes: Record<string, number> = {};
         if (cl.x !== nx) changes.x = nx;
@@ -311,15 +312,15 @@ export const PreviewCanvas: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: theme.colors.bg.primary }}>
       <div ref={canvasWrapRef} onClick={(e) => { if (e.target === e.currentTarget) clearSelection(); }}
         style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: 8, position: 'relative' }}>
-        <div style={{ position: 'relative', width: displayW, height: displayH, background: '#000', overflow: 'visible', borderRadius: theme.radius.sm }}>
+        <div style={{ position: 'relative', width: displayW || 0, height: displayH || 0, background: '#000', overflow: 'visible', borderRadius: theme.radius.sm }}>
           <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: theme.radius.sm }}>
             {visibleClips.map(({ clip }) => {
-              const dr = getClipDisplayRect(clip, pw, ph, fitMode);
+              const dr = getClipDisplayRect(clip, safePw, safePh, fitMode);
               const opacity = getClipOpacity(clip, currentFrame);
               return (
                 <div key={clip.id} style={{
-                  position: 'absolute', left: dr.x * scale, top: dr.y * scale,
-                  width: dr.w * scale, height: dr.h * scale,
+                  position: 'absolute', left: (dr.x * scale) || 0, top: (dr.y * scale) || 0,
+                  width: (dr.w * scale) || 0, height: (dr.h * scale) || 0,
                   opacity, filter: getClipFilter(clip),
                   transition: 'opacity 0.05s linear', overflow: 'hidden',
                 }}>
