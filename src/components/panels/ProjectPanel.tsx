@@ -5,9 +5,23 @@ import {
   deserializeProject, getProjectList
 } from '../../utils/ProjectManager';
 import { theme } from '../../styles/theme';
+import { useEditorStore } from '../../stores/editorStore';
+
+
+const ASPECT_PRESETS = [
+  { label: "16:9 YouTube", w: 1920, h: 1080, icon: "🎬" },
+  { label: "9:16 Reels/TikTok", w: 1080, h: 1920, icon: "📱" },
+  { label: "1:1 Instagram", w: 1080, h: 1080, icon: "🟧" },
+  { label: "4:5 Portrait", w: 1080, h: 1350, icon: "🖼" },
+  { label: "21:9 Cinematic", w: 2560, h: 1080, icon: "🎥" },
+];
 
 export const ProjectPanel: React.FC = () => {
   const [projectName, setProjectName] = useState('My Project');
+  const pw = useEditorStore(s => s.projectWidth);
+  const ph = useEditorStore(s => s.projectHeight);
+  const setProjectWidth = useEditorStore(s => s.setProjectWidth);
+  const setProjectHeight = useEditorStore(s => s.setProjectHeight);
   const [savedList, setSavedList] = useState<{ key: string; name: string; savedAt: string }[]>([]);
   const [message, setMessage] = useState('');
 
@@ -76,6 +90,27 @@ export const ProjectPanel: React.FC = () => {
         }} />
 
       {/* Actions */}
+
+      {/* Canvas Aspect Ratio */}
+      <div style={{ marginBottom: 16 }}>
+        <h4 style={{ fontSize: 13, color: '#aaa', marginBottom: 8 }}>📐 캔버스 비율</h4>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {ASPECT_PRESETS.map(p => {
+            const active = pw === p.w && ph === p.h;
+            return (
+              <button key={p.label} onClick={() => { setProjectWidth(p.w); setProjectHeight(p.h); }}
+                style={{ padding: '6px 10px', borderRadius: 6, border: active ? '2px solid #60a5fa' : '1px solid #444',
+                  background: active ? '#60a5fa20' : '#2a2a2a', color: active ? '#60a5fa' : '#ccc',
+                  cursor: 'pointer', fontSize: 11, fontWeight: active ? 700 : 400 }}>
+                {p.icon} {p.label}
+                <div style={{ fontSize: 9, opacity: 0.7 }}>{p.w}x{p.h}</div>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>현재: {pw}x{ph}</div>
+      </div>
+
       <button onClick={handleSave} style={{ ...btn, background: theme.colors.accent.blue, color: '#fff' }}>
         {'\uD83D\uDCBE \uC800\uC7A5'}
       </button>

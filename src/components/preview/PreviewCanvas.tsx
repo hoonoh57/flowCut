@@ -16,14 +16,21 @@ const GUIDE_LABELS: Record<GuideMode, string> = { off: 'OFF', safe: 'Safe', grid
 const PRESETS: AspectPreset[] = ['16:9', '9:16', '1:1', '4:3', '4:5', '21:9'];
 const HANDLE_SIZE = 8;
 
-function getClipDisplayRect(clip: Clip, pw: number, ph: number) {
+function getClipDisplayRect(clip: Clip, pw: number, ph: number, fitMode: FitMode = 'fit') {
   const isDefault = clip.x === 0 && clip.y === 0 && (clip.width !== pw || clip.height !== ph);
   if (isDefault && (clip.type === 'video' || clip.type === 'image')) {
     const clipAR = clip.width / clip.height;
     const projAR = pw / ph;
     let dw: number, dh: number, dx: number, dy: number;
-    if (clipAR > projAR) { dw = pw; dh = pw / clipAR; dx = 0; dy = (ph - dh) / 2; }
-    else { dh = ph; dw = ph * clipAR; dx = (pw - dw) / 2; dy = 0; }
+    if (fitMode === 'stretch') {
+      dw = pw; dh = ph; dx = 0; dy = 0;
+    } else if (fitMode === 'fill') {
+      if (clipAR > projAR) { dh = ph; dw = ph * clipAR; dx = (pw - dw) / 2; dy = 0; }
+      else { dw = pw; dh = pw / clipAR; dx = 0; dy = (ph - dh) / 2; }
+    } else {
+      if (clipAR > projAR) { dw = pw; dh = pw / clipAR; dx = 0; dy = (ph - dh) / 2; }
+      else { dh = ph; dw = ph * clipAR; dx = (pw - dw) / 2; dy = 0; }
+    }
     return { x: dx, y: dy, w: dw, h: dh, autoFit: true };
   }
   return { x: clip.x, y: clip.y, w: clip.width, h: clip.height, autoFit: false };
@@ -154,7 +161,8 @@ const SelectionOverlay: React.FC<{ clip: Clip; pw: number; ph: number; scale: nu
   const dispatch = useEditorStore((s) => s.dispatch);
   const allClips = useEditorStore((s) => s.clips);
   const setClips = useEditorStore((s) => s.setClips);
-  const dr = getClipDisplayRect(clip, pw, ph);
+  const fitMode = useEditorStore.getState().fitMode;
+    const dr = getClipDisplayRect(clip, pw, ph, fitMode);
   const dragRef = useRef({ startX: 0, startY: 0, origX: 0, origY: 0, origW: 0, origH: 0, type: '' });
   const x = dr.x * scale, y = dr.y * scale, w = dr.w * scale, h = dr.h * scale;
   const handles = [
@@ -262,7 +270,41 @@ export const PreviewCanvas: React.FC = () => {
   const visibleClips = useMemo(() => getVisibleClips(clips, currentFrame), [clips, currentFrame]);
   const visibleIds = useMemo(() => new Set(visibleClips.map(v => v.clip.id)), [visibleClips]);
   const nextGuide = () => setGuideMode(GUIDE_MODES[(GUIDE_MODES.indexOf(guideMode) + 1) % GUIDE_MODES.length]);
-  const nextFit = () => { const m: FitMode[] = ['fit', 'fill', 'stretch']; setFitMode(m[(m.indexOf(fitMode) + 1) % m.length]); };
+  const nextFit = () => {
+    const m: FitMode[] = ['fit', 'fill', 'stretch'];
+    const next = m[(m.indexOf(fitMode) + 1) % m.length];
+    setFitMode(next);
+    // Apply fit to all selected clips
+    const state = useEditorStore.getState();
+    const dispatch = state.dispatch;
+    const allC = state.clips;
+    const selIds = state.selectedClipIds;
+    if (selIds.length > 0) {
+      const updated = allC.map(cl => {
+        if (!selIds.includes(cl.id)) return cl;
+        if (cl.type !== 'video' && cl.type !== 'image') return cl;
+        const clipAR = cl.width / cl.height;
+        const projAR = pw / ph;
+        let nx: number, ny: number, nw: number, nh: number;
+        if (next === 'stretch') { nw = pw; nh = ph; nx = 0; ny = 0; }
+        else if (next === 'fill') {
+          if (clipAR > projAR) { nh = ph; nw = Math.round(ph * clipAR); nx = Math.round((pw - nw) / 2); ny = 0; }
+          else { nw = pw; nh = Math.round(pw / clipAR); nx = 0; ny = Math.round((ph - nh) / 2); }
+        } else {
+          if (clipAR > projAR) { nw = pw; nh = Math.round(pw / clipAR); nx = 0; ny = Math.round((ph - nh) / 2); }
+          else { nh = ph; nw = Math.round(ph * clipAR); nx = Math.round((pw - nw) / 2); ny = 0; }
+        }
+        const changes: Record<string, number> = {};
+        if (cl.x !== nx) changes.x = nx;
+        if (cl.y !== ny) changes.y = ny;
+        if (cl.width !== nw) changes.width = nw;
+        if (cl.height !== nh) changes.height = nh;
+        if (Object.keys(changes).length > 0) dispatch(new UpdateClipCommand(cl.id, changes));
+        return { ...cl, x: nx, y: ny, width: nw, height: nh };
+      });
+      useEditorStore.getState().setClips(updated);
+    }
+  };
   const btn: React.CSSProperties = { background: theme.colors.bg.elevated, color: theme.colors.text.secondary, border: `1px solid ${theme.colors.border.default}`, borderRadius: theme.radius.sm, padding: '2px 6px', cursor: 'pointer', fontSize: theme.fontSize.xs };
 
   return (
@@ -272,7 +314,7 @@ export const PreviewCanvas: React.FC = () => {
         <div style={{ position: 'relative', width: displayW, height: displayH, background: '#000', overflow: 'visible', borderRadius: theme.radius.sm }}>
           <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: theme.radius.sm }}>
             {visibleClips.map(({ clip }) => {
-              const dr = getClipDisplayRect(clip, pw, ph);
+              const dr = getClipDisplayRect(clip, pw, ph, fitMode);
               const opacity = getClipOpacity(clip, currentFrame);
               return (
                 <div key={clip.id} style={{

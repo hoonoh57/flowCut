@@ -159,6 +159,8 @@ export const ExportPanel: React.FC = () => {
           x: c.x,
           y: c.y,
           clipWidth: c.width,
+          sourceStart: c.sourceStart || 0,
+          sourceDuration: c.sourceDuration || 0,
           clipHeight: c.height,
           opacity: c.opacity,
           trackId: c.trackId,

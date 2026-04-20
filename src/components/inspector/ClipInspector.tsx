@@ -189,7 +189,26 @@ export default function ClipInspector() {
       )}
 
       {/* ─── Timing ─── */}
-      <Section title="Timing">
+      
+      {/* --- Source Trim (In/Out) --- */}
+      {(isVisual || isAudio) && clip.sourceDuration > 0 && (
+        <Section title="Source Trim">
+          <NumField label="In Point" value={clip.sourceStart || 0} onChange={v => {
+            const maxIn = (clip.sourceDuration || 5) - 0.1;
+            set('sourceStart', Math.max(0, Math.min(v, maxIn)));
+          }} min={0} max={clip.sourceDuration || 5} step={0.01} unit="s" />
+          <NumField label="Out Point" value={(clip.sourceStart || 0) + (clip.sourceDuration || 5)} onChange={v => {
+            const newDur = Math.max(0.1, v - (clip.sourceStart || 0));
+            set('sourceDuration', newDur);
+          }} min={0.1} step={0.01} unit="s" />
+          <NumField label="Src Duration" value={clip.sourceDuration || 0} onChange={v => set('sourceDuration', Math.max(0.1, v))} min={0.1} step={0.01} unit="s" />
+          <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>
+            Source: {(clip.sourceStart || 0).toFixed(2)}s ~ {((clip.sourceStart || 0) + (clip.sourceDuration || 0)).toFixed(2)}s
+          </div>
+        </Section>
+      )}
+
+<Section title="Timing">
         <NumField label="Start" value={clip.startFrame || 0} onChange={v => set('startFrame', v)} min={0} unit="frames" />
         <NumField label="Duration" value={clip.durationFrames || 0} onChange={v => set('durationFrames', v)} min={1} unit="frames" />
         {(isVisual || isAudio) && (

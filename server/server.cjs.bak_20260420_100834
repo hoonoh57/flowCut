@@ -163,20 +163,7 @@ app.post('/api/export', async (req, res) => {
 
   try {
     const visualClips = inputFiles
-      .filter(f => {
-        if (!((f.type === 'video' || f.type === 'image') && f.localPath && fs.existsSync(f.localPath))) return false;
-        // Skip animated WEBP files (FFmpeg cannot decode ComfyUI SaveAnimatedWEBP output)
-        if (f.localPath && f.localPath.toLowerCase().endsWith('.webp')) {
-          try {
-            const buf = fs.readFileSync(f.localPath).slice(0, 64);
-            if (buf.toString('ascii').includes('ANIM')) {
-              console.log('[EXPORT] Skipping animated WEBP:', f.localPath);
-              return false;
-            }
-          } catch(e) {}
-        }
-        return true;
-      })
+      .filter(f => (f.type === 'video' || f.type === 'image') && f.localPath && fs.existsSync(f.localPath))
       .sort((a, b) => {
         const aRect = getClipRect(a, projectWidth, projectHeight, ow, oh);
         const bRect = getClipRect(b, projectWidth, projectHeight, ow, oh);
@@ -198,20 +185,7 @@ app.post('/api/export', async (req, res) => {
       });
 
     const audioClips = inputFiles
-      .filter(f => {
-        if (!((f.type === 'audio' || f.type === 'video') && !f.muted && f.localPath && fs.existsSync(f.localPath))) return false;
-        const ext = (f.localPath || '').toLowerCase();
-        if (ext.endsWith('.webm') || ext.endsWith('.webp') || ext.endsWith('.gif')) {
-          try {
-            const probe = require('child_process').execSync('E:/ffmpeg/bin/ffprobe.exe -hide_banner -show_streams "' + f.localPath + '"', { encoding: 'utf8', timeout: 5000 });
-            if (!probe.includes('codec_type=audio')) {
-              console.log('[EXPORT] Skipping audio (no audio stream):', f.localPath);
-              return false;
-            }
-          } catch(e) { return false; }
-        }
-        return true;
-      })
+      .filter(f => (f.type === 'audio' || f.type === 'video') && !f.muted && f.localPath && fs.existsSync(f.localPath))
       .sort((a, b) => a.startFrame - b.startFrame);
 
     if (visualClips.length === 0 && textClips.length === 0 && audioClips.length === 0) {
@@ -232,19 +206,8 @@ app.post('/api/export', async (req, res) => {
 
     for (const clip of visualClips) {
       if (clip.type === 'image') {
-        const ext = (clip.localPath || '').toLowerCase();
-        const isAnimated = ext.endsWith('.webp') || ext.endsWith('.gif');
-        if (isAnimated) {
-          // Animated WEBP/GIF: treat as video (no -loop 1)
-          args.push('-i', clip.localPath);
-          console.log('[EXPORT] Animated file (no loop):', clip.localPath);
-        } else {
-          args.push('-loop', '1', '-t', (clip.durationFrames / fps).toFixed(3), '-i', clip.localPath);
-        }
+        args.push('-loop', '1', '-t', (clip.durationFrames / fps).toFixed(3), '-i', clip.localPath);
       } else {
-        if (clip.sourceStart && clip.sourceStart > 0) {
-          args.push('-ss', String(clip.sourceStart));
-        }
         args.push('-i', clip.localPath);
       }
       inputMap.set(clip.clipId + '_v', inputIdx);
@@ -534,8 +497,8 @@ app.post('/api/ai/generate-text', async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: ollamaModel, prompt, system: systemPrompt, stream: false, options: { temperature: 0.7, num_predict: 500 } }),
-      });
-
+      signal: AbortSignal.timeout(30000),
+    });
     const data = await resp.json();
     const responseText = data.response || '';
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -889,8 +852,6 @@ app.listen(PORT, () => {
   console.log('  http://localhost:' + PORT);
   console.log('  FFmpeg: ' + FFMPEG);
   console.log('  Output: ' + OUTPUT_DIR);
-  console.log('  Node.js: ' + process.version);
-  console.log('  Native fetch: ' + (typeof fetch === 'function' ? 'YES' : 'NO'));
   console.log('  Node.js: ' + process.version);
   console.log('  Native fetch: ' + (typeof fetch !== 'undefined' ? 'YES' : 'NO'));
   console.log('');
