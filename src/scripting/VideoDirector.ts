@@ -122,8 +122,8 @@ export function planToFlowScript(plan: DirectorPlan): any {
     project: { width: project.width, height: project.height, fps },
     media, tracks, clips,
     actions: [
-      { type: "autoSubtitle", language: "ko" },
-      { type: "export", format: "mp4", quality: "high" }
+      { action: "autoSubtitle", language: "ko" },
+      { action: "export", format: "mp4", quality: "high" }
     ]
   };
 }

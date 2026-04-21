@@ -193,7 +193,7 @@ export class ScriptEngine {
         try {
           const resp = await fetch("http://localhost:3456/api/comfyui/generate", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ workflowId: media.aiWorkflow || "background-scene", positive: media.aiPrompt || media.src.replace("ai://", ""), width: 1024, height: 1024 }),
+            body: JSON.stringify({ workflowId: (media.aiWorkflow === "image-to-video" || media.aiWorkflow === "video-i2v") ? "background-scene" : (media.aiWorkflow || "background-scene"), positive: media.aiPrompt || media.src.replace("ai://", ""), width: 1024, height: 1024 }),
           });
           const data = await resp.json();
           if (data.success) {
@@ -344,7 +344,7 @@ export class ScriptEngine {
   private async executeActions(actions: FlowScriptAction[]) {
     if (!actions || !Array.isArray(actions)) return;
     for (const act of actions) {
-      switch (act.action) {
+      switch (act.action || (act as any).type) {
         case "split": {
           const cid = this.resolveClipId(act.clipId);
           useEditorStore.getState().dispatch(new SplitClipCommand(cid, act.frame));
