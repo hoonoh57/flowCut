@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "characters": {
+    "yuna": {
+      "key": "yuna",
+      "name": "Yuna",
+      "created": "2026-04-22T15:36:24.655Z",
+      "generation": {
+        "model": "DreamShaperXL_Turbo_v2",
+        "seed": 847291036,
+        "prompt": "25yo Korean woman, long black hair, oval face, gentle eyes, fair skin",
+        "negative": "blurry, ugly, deformed",
+        "width": 1024,
+        "height": 1024
+      },
+      "sheets": {},
+      "wardrobeSheets": {},
+      "voice": {
+        "engine": "edge-tts",
+        "preset": "ko-KR-SunHiNeural",
+        "language": "ko"
+      },
+      "motion": {
+        "style": "natural",
+        "defaultPose": "relaxed"
+      }
+    }
+  }
+}
