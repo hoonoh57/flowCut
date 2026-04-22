@@ -1245,51 +1245,240 @@ app.post('/api/tts/generate', async (req, res) => {
 // Upscale via ComfyUI RealESRGAN — Phase 3.5
 // =========================================================================
 app.post('/api/comfyui/upscale', async (req, res) => {
-  const { imageLocalPath, scale, outputName } = req.body;
+  const { imageLocalPath, scale, outputName, method } = req.body;
   if (!imageLocalPath || !fs.existsSync(imageLocalPath)) {
     return res.json({ success: false, error: 'Image not found: ' + imageLocalPath });
   }
 
-  const scaleFactor = scale || 2;
+  const scaleFactor = scale || 4;
+  const useAI = method !== 'lanczos';
   const outName = outputName || ('upscaled_' + Date.now() + '.png');
   const outPath = path.join(MEDIA_DIR, outName);
+  const COMFY_INPUT_DIR = 'E:/WuxiaStudio/engine/ComfyUI/ComfyUI/input';
 
-  console.log('[UPSCALE] input:', imageLocalPath, 'scale:', scaleFactor);
+  console.log('[UPSCALE] input:', imageLocalPath, 'scale:', scaleFactor, 'method:', useAI ? 'AI (4x-UltraSharp)' : 'FFmpeg lanczos');
 
+  if (useAI) {
+    try {
+      // Copy image to ComfyUI input
+      const inputName = 'flowcut_upscale_' + Date.now() + '_' + path.basename(imageLocalPath);
+      const comfyInputPath = path.join(COMFY_INPUT_DIR, inputName);
+      fs.copyFileSync(imageLocalPath, comfyInputPath);
+      console.log('[UPSCALE] Copied to ComfyUI input:', comfyInputPath);
+
+      // Load upscale workflow
+      const wfPath = path.join(__dirname, '..', 'src', 'config', 'workflows', 'upscale-image.json');
+      const template = JSON.parse(fs.readFileSync(wfPath, 'utf8'));
+      const workflow = JSON.parse(JSON.stringify(template.workflow));
+
+      // Inject input image name
+      for (const [nodeId, node] of Object.entries(workflow)) {
+        if (node.inputs) {
+          for (const [key, val] of Object.entries(node.inputs)) {
+            if (typeof val === 'string' && val === '{{input_image}}') {
+              node.inputs[key] = inputName;
+            }
+          }
+          // Select model based on scale
+          if (node.class_type === 'UpscaleModelLoader') {
+            node.inputs.model_name = scaleFactor >= 4 ? '4x-UltraSharp.pth' : '2xLexicaRRDBNet_Sharp.pth';
+            console.log('[UPSCALE] Model:', node.inputs.model_name);
+          }
+        }
+      }
+
+      // Submit to ComfyUI
+      const payload = JSON.stringify({ prompt: workflow });
+      const queueResp = await fetch('http://127.0.0.1:8188/prompt', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload,
+      });
+      const queueData = await queueResp.json();
+
+      if (queueData.error) {
+        console.log('[UPSCALE] ComfyUI rejected, falling back to FFmpeg:', JSON.stringify(queueData.error).substring(0, 200));
+        throw new Error('ComfyUI_FALLBACK');
+      }
+
+      const promptId = queueData.prompt_id;
+      if (!promptId) throw new Error('No prompt_id');
+      console.log('[UPSCALE] ComfyUI prompt_id:', promptId);
+
+      // Poll for result
+      for (let i = 0; i < 150; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          const histResp = await fetch('http://127.0.0.1:8188/history/' + promptId);
+          const histData = await histResp.json();
+          const entry = histData[promptId];
+          if (!entry) { if (i % 5 === 0) console.log('[UPSCALE] Polling... (' + (i*2) + 's)'); continue; }
+
+          for (const [nodeId, output] of Object.entries(entry.outputs || {})) {
+            const imgList = output.images || output.gifs;
+            if (imgList && imgList.length > 0) {
+              const img = imgList[0];
+              const imgUrl = 'http://127.0.0.1:8188/view?filename=' + encodeURIComponent(img.filename)
+                + '&subfolder=' + encodeURIComponent(img.subfolder || '')
+                + '&type=' + (img.type || 'output');
+              const imgResp = await fetch(imgUrl);
+              const imgBuf = Buffer.from(await imgResp.arrayBuffer());
+              fs.writeFileSync(outPath, imgBuf);
+              console.log('[UPSCALE] AI upscale done:', outPath, '(' + imgBuf.length + ' bytes)');
+              return res.json({
+                success: true, localPath: outPath,
+                servePath: '/media/' + outName,
+                serverUrl: 'http://localhost:' + PORT + '/media/' + outName,
+                scale: scaleFactor, method: 'ai-4xUltraSharp',
+              });
+            }
+          }
+        } catch (pollErr) { console.log('[UPSCALE] Poll error:', pollErr.message); }
+      }
+      throw new Error('AI upscale timed out');
+
+    } catch (aiErr) {
+      if (aiErr.message !== 'ComfyUI_FALLBACK') console.log('[UPSCALE] AI failed:', aiErr.message);
+      console.log('[UPSCALE] Falling back to FFmpeg lanczos...');
+    }
+  }
+
+  // FFmpeg lanczos fallback (or explicit lanczos method)
   try {
-    // Use FFmpeg scale filter as fallback (lanczos)
-    // For RealESRGAN ComfyUI node, we would build a workflow — for now, high-quality FFmpeg upscale
     await new Promise((resolve, reject) => {
-      const args = [
-        '-y', '-i', imageLocalPath,
-        '-vf', 'scale=iw*' + scaleFactor + ':ih*' + scaleFactor + ':flags=lanczos',
-        '-q:v', '2',
-        outPath
-      ];
+      const args = ['-y', '-i', imageLocalPath, '-vf', 'scale=iw*' + scaleFactor + ':ih*' + scaleFactor + ':flags=lanczos', '-q:v', '2', outPath];
       const proc = spawn(FFMPEG, args);
       let stderr = '';
       proc.stderr.on('data', d => stderr += d.toString());
+      proc.on('close', code => { if (code === 0 && fs.existsSync(outPath)) resolve(); else reject(new Error('FFmpeg failed: ' + stderr.slice(-200))); });
+      proc.on('error', reject);
+    });
+    console.log('[UPSCALE] FFmpeg done:', outPath);
+    res.json({
+      success: true, localPath: outPath,
+      servePath: '/media/' + outName,
+      serverUrl: 'http://localhost:' + PORT + '/media/' + outName,
+      scale: scaleFactor, method: 'ffmpeg-lanczos',
+    });
+  } catch (ffErr) {
+    console.log('[UPSCALE] FFmpeg error:', ffErr.message);
+    res.json({ success: false, error: ffErr.message });
+  }
+});
+
+
+// =========================================================================
+// A2: Frame Interpolation — 16fps → 30fps+ via FFmpeg minterpolate
+// =========================================================================
+app.post('/api/interpolate', async (req, res) => {
+  const { videoLocalPath, targetFps, method, outputName } = req.body;
+  if (!videoLocalPath || !fs.existsSync(videoLocalPath)) {
+    return res.json({ success: false, error: 'Video not found: ' + videoLocalPath });
+  }
+
+  const fps = targetFps || 30;
+  const interpMethod = method || 'mci';
+  const outName = outputName || ('interp_' + fps + 'fps_' + Date.now() + '.mp4');
+  const outPath = path.join(MEDIA_DIR, outName);
+
+  console.log('[INTERP] input:', videoLocalPath, 'target:', fps + 'fps', 'method:', interpMethod);
+
+  try {
+    await new Promise((resolve, reject) => {
+      const args = [
+        '-y', '-i', videoLocalPath,
+        '-vf', 'minterpolate=fps=' + fps + ':mi_mode=' + interpMethod + ':mc_mode=aobmc:me_mode=bidir:vsbmc=1',
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p',
+        '-an', outPath
+      ];
+      console.log('[INTERP] FFmpeg args:', args.join(' ').substring(0, 300));
+      const proc = spawn(FFMPEG, args);
+      let stderr = '';
+      proc.stderr.on('data', d => { stderr += d.toString(); });
       proc.on('close', code => {
-        if (code === 0 && fs.existsSync(outPath)) resolve();
-        else reject(new Error('FFmpeg upscale failed: ' + stderr.slice(-200)));
+        if (code === 0 && fs.existsSync(outPath)) {
+          resolve();
+        } else {
+          console.log('[INTERP] stderr:', stderr.slice(-500));
+          reject(new Error('Interpolation failed (code ' + code + '): ' + stderr.slice(-200)));
+        }
       });
       proc.on('error', reject);
     });
 
-    console.log('[UPSCALE] Success:', outPath);
+    // Get output info
+    const stats = fs.statSync(outPath);
+    console.log('[INTERP] Done:', outPath, '(' + (stats.size / 1048576).toFixed(1) + ' MB)');
+
     res.json({
       success: true,
       localPath: outPath,
       servePath: '/media/' + outName,
       serverUrl: 'http://localhost:' + PORT + '/media/' + outName,
-      scale: scaleFactor,
+      targetFps: fps,
+      method: 'minterpolate-' + interpMethod,
+      sizeMB: parseFloat((stats.size / 1048576).toFixed(1)),
     });
   } catch (err) {
-    console.log('[UPSCALE] Error:', err.message);
+    console.log('[INTERP] Error:', err.message);
     res.json({ success: false, error: err.message });
   }
 });
 
+// =========================================================================
+// A2: Video Enhance Pipeline — upscale + interpolate in one call
+// =========================================================================
+app.post('/api/enhance-video', async (req, res) => {
+  const { videoLocalPath, targetFps, upscaleScale, upscaleMethod } = req.body;
+  if (!videoLocalPath || !fs.existsSync(videoLocalPath)) {
+    return res.json({ success: false, error: 'Video not found: ' + videoLocalPath });
+  }
+
+  const fps = targetFps || 30;
+  const scale = upscaleScale || 2;
+  const outName = 'enhanced_' + Date.now() + '.mp4';
+  const outPath = path.join(MEDIA_DIR, outName);
+
+  console.log('[ENHANCE] input:', videoLocalPath, 'target:', fps + 'fps', 'upscale:', scale + 'x');
+
+  try {
+    // Single FFmpeg pass: upscale + interpolate together
+    const scaleFilter = 'scale=iw*' + scale + ':ih*' + scale + ':flags=lanczos';
+    const interpFilter = 'minterpolate=fps=' + fps + ':mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1';
+    const filterChain = scaleFilter + ',' + interpFilter;
+
+    await new Promise((resolve, reject) => {
+      const args = [
+        '-y', '-i', videoLocalPath,
+        '-vf', filterChain,
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p',
+        '-an', outPath
+      ];
+      console.log('[ENHANCE] FFmpeg filter:', filterChain);
+      const proc = spawn(FFMPEG, args);
+      let stderr = '';
+      proc.stderr.on('data', d => { stderr += d.toString(); });
+      proc.on('close', code => {
+        if (code === 0 && fs.existsSync(outPath)) resolve();
+        else reject(new Error('Enhance failed (code ' + code + '): ' + stderr.slice(-200)));
+      });
+      proc.on('error', reject);
+    });
+
+    const stats = fs.statSync(outPath);
+    console.log('[ENHANCE] Done:', outPath, '(' + (stats.size / 1048576).toFixed(1) + ' MB)');
+
+    res.json({
+      success: true,
+      localPath: outPath,
+      servePath: '/media/' + outName,
+      serverUrl: 'http://localhost:' + PORT + '/media/' + outName,
+      targetFps: fps, upscaleScale: scale,
+      sizeMB: parseFloat((stats.size / 1048576).toFixed(1)),
+    });
+  } catch (err) {
+    console.log('[ENHANCE] Error:', err.message);
+    res.json({ success: false, error: err.message });
+  }
+});
 const PORT = 3456;
 app.listen(PORT, () => {
   console.log('');

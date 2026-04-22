@@ -258,6 +258,38 @@ export class ScriptEngine {
                     width: i2vData.width || 480, height: i2vData.height || 832, size: 0
                   });
                   this.mediaIdMap.set(media.id, media.id + "_video");
+                                    // === A2: Auto enhance — interpolate 16fps→30fps + upscale 2x ===
+                  try {
+                    const enhResp = await fetch("http://localhost:3456/api/enhance-video", {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        videoLocalPath: i2vData.localPath,
+                        targetFps: 30,
+                        upscaleScale: 2,
+                      }),
+                    });
+                    const enhData = await enhResp.json();
+                    if (enhData.success) {
+                      // Replace i2v media with enhanced version
+                      useEditorStore.getState().addMediaItem({
+                        id: media.id + "_enhanced",
+                        name: (media.name || "AI Video") + " (enhanced)",
+                        type: "video",
+                        url: enhData.serverUrl,
+                        localPath: enhData.localPath,
+                        duration: (i2vData.frames || 81) / (i2vData.fps || 16),
+                        width: (i2vData.width || 480) * 2,
+                        height: (i2vData.height || 832) * 2,
+                        size: 0,
+                      });
+                      this.mediaIdMap.set(media.id, media.id + "_enhanced");
+                      this.log.push("[A2] Enhanced: " + enhData.localPath + " (30fps, " + (enhData.upscaleScale || 2) + "x, " + (enhData.sizeMB || "?") + "MB)");
+                    } else {
+                      this.log.push("[A2] Enhance failed: " + (enhData.error || "unknown") + " — using original i2v");
+                    }
+                  } catch (enhErr: any) {
+                    this.log.push("[A2] Enhance error: " + enhErr.message + " — using original i2v");
+                  }
                   this.log.push("[Media] I2V complete: " + i2vData.localPath);
                 } else {
                   this.log.push("[Media] I2V failed: " + (i2vData.error || "unknown") + " - using image fallback");
