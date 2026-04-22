@@ -24,6 +24,12 @@ function normalizeScript(script: any): any {
   // Unwrap if nested in { flowScript: { ... } }
   if (script.flowScript && !script.version) script = script.flowScript;
 
+  // World Context: inject before any processing
+  if (script.world) {
+    script = injectWorldContext(script, script.world as FlowScriptWorld);
+    if (script.media) { for (const m of script.media) { if ((m as any)._worldInjected) console.log('[WorldContext] aiPrompt:', ((m as any).aiPrompt || '').substring(0, 120)); } }
+  }
+
   const fps = script.project?.fps || DEFAULT_PROJECT.fps;
   const totalFrames = fps * 30;
 
@@ -204,7 +210,7 @@ export class ScriptEngine {
         try {
           const resp = await fetch("http://localhost:3456/api/comfyui/generate", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ workflowId: (media.aiWorkflow === "image-to-video" || media.aiWorkflow === "video-i2v") ? "background-scene" : (media.aiWorkflow || "background-scene"), positive: media.aiPrompt || media.src.replace("ai://", ""), width: 1024, height: 1024 }),
+            body: JSON.stringify({ workflowId: (media.aiWorkflow === "image-to-video" || media.aiWorkflow === "video-i2v") ? "background-scene" : (media.aiWorkflow || "background-scene"), positive: (() => { const p = media.aiPrompt || media.src.replace("ai://", ""); this.log.push("[Media] ComfyUI positive: " + p.substring(0, 120)); return p; })(), width: 1024, height: 1024 }),
           });
           const data = await resp.json();
           if (data.success) {

@@ -323,11 +323,15 @@ export function injectWorldContext(
     for (const media of script.media) {
       if (media.src?.startsWith('ai://') && !media._worldInjected) {
         const rawPrompt = media.aiPrompt || media.src.replace('ai://', '');
-        // Build a minimal scene context from the prompt
-        const ctx: SceneContext = { action: rawPrompt };
+        // Build scene context with ALL world characters and locations
+        const allCharIds = world.characters ? Object.keys(world.characters) : [];
+        const firstLocId = world.locations ? Object.keys(world.locations)[0] : undefined;
+        const ctx: SceneContext = { action: rawPrompt, characters: allCharIds.length > 0 ? allCharIds : undefined, location: firstLocId };
         const built = buildScenePrompt(ctx, world);
         media.aiPrompt = built.positive;
         media._negative = built.negative;
+        media._characterRefs = built.characterRefs;
+        media._seeds = built.seeds;
         media._worldInjected = true;
       }
     }
