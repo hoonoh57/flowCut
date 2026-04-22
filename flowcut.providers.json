@@ -1,0 +1,75 @@
+{
+  "image": {
+    "active": "comfyui",
+    "comfyui": {
+      "url": "http://127.0.0.1:8188",
+      "workflow": "background-scene",
+      "defaultModel": "flux1-dev-fp8"
+    },
+    "fal": {
+      "apiKey": "",
+      "model": "fal-ai/flux-pro/v1.1"
+    },
+    "replicate": {
+      "apiToken": "",
+      "model": "stability-ai/sdxl"
+    }
+  },
+  "video": {
+    "active": "comfyui",
+    "comfyui": {
+      "url": "http://127.0.0.1:8188",
+      "workflow": "video-i2v",
+      "defaultModel": "wan2.2-5B"
+    },
+    "fal": {
+      "apiKey": "",
+      "model": "fal-ai/wan-2.7/image-to-video"
+    }
+  },
+  "tts": {
+    "active": "edge-tts",
+    "edge-tts": {},
+    "xtts-v2": {
+      "url": "http://localhost:8020"
+    },
+    "fish-speech": {
+      "url": "http://localhost:8080"
+    },
+    "elevenlabs": {
+      "apiKey": ""
+    }
+  },
+  "interpolation": {
+    "active": "ffmpeg",
+    "ffmpeg": {
+      "method": "xfade"
+    },
+    "comfyui-rife": {
+      "url": "http://127.0.0.1:8188"
+    }
+  },
+  "upscale": {
+    "active": "ffmpeg",
+    "ffmpeg": {
+      "method": "lanczos"
+    },
+    "comfyui": {
+      "workflow": "upscale-realesrgan"
+    }
+  },
+  "llm": {
+    "active": "ollama",
+    "ollama": {
+      "url": "http://localhost:11434",
+      "model": "gemma4:e4b"
+    },
+    "openai": {
+      "apiKey": "",
+      "model": "gpt-4o"
+    },
+    "lmstudio": {
+      "url": "http://localhost:1234"
+    }
+  }
+}

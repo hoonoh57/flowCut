@@ -136,6 +136,7 @@ export type FlowScriptAction =
 export interface FlowScript {
   version: "1.0";
   project: FlowScriptProject;
+  world?: FlowScriptWorld;
   media?: FlowScriptMedia[];
   tracks?: FlowScriptTrack[];
   clips: FlowScriptClip[];

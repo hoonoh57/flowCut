@@ -8,6 +8,8 @@ import { DeleteClipCommand } from "../stores/commands/DeleteClipCommand";
 import { SplitClipCommand } from "../stores/commands/SplitClipCommand";
 import { AddTrackCommand } from "../stores/commands/AddTrackCommand";
 import type { Track } from "../types/track";
+import { injectWorldContext } from "./WorldContext";
+import type { FlowScriptWorld } from "./flowscript.schema";
 
 export interface ScriptResult {
   success: boolean;
