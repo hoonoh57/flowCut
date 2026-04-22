@@ -871,10 +871,6 @@ app.post('/api/comfyui/generate', async (req, res) => {
   console.log('[COMFY-GEN] TIMEOUT after 600s');
   return res.json({ error: 'Generation timed out' });
 });
-});
-
-
-
 
 // =========================================================================
 // Image-to-Video 2-Stage Pipeline
