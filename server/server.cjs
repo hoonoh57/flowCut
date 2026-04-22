@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
@@ -698,179 +698,179 @@ app.post('/api/script', async (req, res) => {
 // ComfyUI Direct Generate — FIXED: Node.js native fetch, robust error handling
 // =========================================================================
 app.post('/api/comfyui/generate', async (req, res) => {
-  const { workflowId, positive, negative, width, height, seed } = req.body;
+  const { workflowId, positive, negative, width, height, seed, characterRefs } = req.body;
   console.log('');
   console.log('========================================');
   console.log('[COMFY-GEN] START');
   console.log('[COMFY-GEN] workflowId:', workflowId);
   console.log('[COMFY-GEN] positive:', (positive || '').substring(0, 80));
   console.log('[COMFY-GEN] dimensions:', width, 'x', height);
+  console.log('[COMFY-GEN] seed:', seed || 'random');
+  console.log('[COMFY-GEN] characterRefs:', JSON.stringify(characterRefs || []));
   console.log('========================================');
-  
-  // Load workflow template
-  const wfPath = path.join(__dirname, '..', 'src', 'config', 'workflows', workflowId + '.json');
-  console.log('[COMFY-GEN] Workflow path:', wfPath);
-  console.log('[COMFY-GEN] File exists:', fs.existsSync(wfPath));
-  
-  if (!fs.existsSync(wfPath)) {
-    console.log('[COMFY-GEN] ERROR: Workflow not found');
-    return res.json({ error: 'Workflow not found: ' + workflowId });
-  }
-  
-  let template;
-  try {
-    template = JSON.parse(fs.readFileSync(wfPath, 'utf8'));
-    console.log('[COMFY-GEN] Template loaded, engine:', template.engine || 'comfyui');
-  } catch (parseErr) {
-    console.log('[COMFY-GEN] ERROR: Failed to parse workflow JSON:', parseErr.message);
-    return res.json({ error: 'Invalid workflow JSON: ' + parseErr.message });
-  }
-  
-  if (template.engine === 'canvas') {
-    return res.json({ error: 'Canvas workflows handled client-side' });
-  }
-  
-  // Deep clone workflow and fill params
-  const workflow = JSON.parse(JSON.stringify(template.workflow));
-  
-  for (const [nodeId, node] of Object.entries(workflow)) {
-    if (node.inputs) {
-      for (const [key, val] of Object.entries(node.inputs)) {
-        if (typeof val === 'string' && val === '{{positive}}') {
-          node.inputs[key] = positive || 'beautiful image';
+
+  // --- A1: IPAdapter workflow selection ---
+  let effectiveWorkflowId = workflowId || 'background-scene';
+  let faceRefName = null;
+  const COMFY_INPUT_DIR = 'E:/WuxiaStudio/engine/ComfyUI/ComfyUI/input';
+
+  if (characterRefs && Array.isArray(characterRefs) && characterRefs.length > 0) {
+    for (const ref of characterRefs) {
+      if (!ref || typeof ref !== 'string') continue;
+      let checkPath = ref;
+      if (ref.startsWith('http')) {
+        const fn = ref.split('/').pop();
+        checkPath = path.join(MEDIA_DIR, fn);
+      }
+      if (fs.existsSync(checkPath)) {
+        try {
+          const refBaseName = 'flowcut_faceref_' + path.basename(checkPath);
+          const comfyRefPath = path.join(COMFY_INPUT_DIR, refBaseName);
+          if (!fs.existsSync(COMFY_INPUT_DIR)) fs.mkdirSync(COMFY_INPUT_DIR, { recursive: true });
+          fs.copyFileSync(checkPath, comfyRefPath);
+          faceRefName = refBaseName;
+          console.log('[COMFY-GEN] Face ref copied:', comfyRefPath);
+          break;
+        } catch (cpErr) {
+          console.log('[COMFY-GEN] Face ref copy failed:', cpErr.message);
         }
-        if (typeof val === 'string' && val === '{{negative}}') {
-          node.inputs[key] = negative || 'blurry, ugly';
-        }
-      }
-      if (node.class_type === 'EmptyLatentImage') {
-        if (width) node.inputs.width = width;
-        if (height) node.inputs.height = height;
-      }
-      if (node.class_type === 'Wan22ImageToVideoLatent') {
-        if (width) node.inputs.width = width;
-        if (height) node.inputs.height = height;
-      }
-      if (node.class_type === 'KSampler') {
-        node.inputs.seed = seed || Math.floor(Math.random() * 1e15);
-      }
-      if (node.class_type === 'ModelSamplingSD3') {
-        // keep default shift
       }
     }
+    if (faceRefName) {
+      const ipaWfPath = path.join(__dirname, '..', 'src', 'config', 'workflows', 'background-scene-ipadapter.json');
+      if (fs.existsSync(ipaWfPath)) {
+        effectiveWorkflowId = 'background-scene-ipadapter';
+        console.log('[COMFY-GEN] IPAdapter workflow selected');
+      } else {
+        console.log('[COMFY-GEN] IPAdapter workflow file not found, seed-only mode');
+        faceRefName = null;
+      }
+    } else {
+      console.log('[COMFY-GEN] No valid face ref image found, seed-only mode');
+    }
   }
-  
-  console.log('[COMFY-GEN] Workflow nodes:', Object.keys(workflow));
-  
-  // Build the payload exactly as ComfyUI expects
+
+  // --- Load workflow template ---
+  const wfPath = path.join(__dirname, '..', 'src', 'config', 'workflows', effectiveWorkflowId + '.json');
+  console.log('[COMFY-GEN] Workflow:', effectiveWorkflowId, '| exists:', fs.existsSync(wfPath));
+  if (!fs.existsSync(wfPath)) return res.json({ error: 'Workflow not found: ' + effectiveWorkflowId });
+
+  let template;
+  try { template = JSON.parse(fs.readFileSync(wfPath, 'utf8')); }
+  catch (parseErr) { return res.json({ error: 'Invalid workflow JSON: ' + parseErr.message }); }
+  if (template.engine === 'canvas') return res.json({ error: 'Canvas workflows handled client-side' });
+
+  // --- Fill workflow params ---
+  const workflow = JSON.parse(JSON.stringify(template.workflow));
+  for (const [nodeId, node] of Object.entries(workflow)) {
+    if (!node.inputs) continue;
+    for (const [key, val] of Object.entries(node.inputs)) {
+      if (typeof val === 'string' && val === '{{positive}}') node.inputs[key] = positive || 'beautiful image';
+      if (typeof val === 'string' && val === '{{negative}}') node.inputs[key] = negative || 'blurry, ugly, deformed';
+      if (typeof val === 'string' && val === '{{face_ref}}') {
+        node.inputs[key] = faceRefName || 'example.png';
+        console.log('[COMFY-GEN] Injected face_ref:', node.inputs[key]);
+      }
+    }
+    if (node.class_type === 'EmptyLatentImage') {
+      if (width) node.inputs.width = width;
+      if (height) node.inputs.height = height;
+    }
+    if (node.class_type === 'KSampler') {
+      node.inputs.seed = seed || Math.floor(Math.random() * 1e15);
+    }
+  }
+
+  // --- Submit to ComfyUI ---
   const payload = JSON.stringify({ prompt: workflow });
-  console.log('[COMFY-GEN] Payload size:', payload.length, 'bytes');
-  console.log('[COMFY-GEN] Payload preview:', payload.substring(0, 300));
-  
-  // === DEBUG: Save payload to file for comparison with PowerShell ===
-  const debugPayloadPath = path.join(TEMP_DIR, 'comfy_debug_payload_' + Date.now() + '.json');
-  fs.writeFileSync(debugPayloadPath, payload, 'utf8');
-  console.log('[COMFY-GEN] Debug payload saved to:', debugPayloadPath);
-  
-  // Submit to ComfyUI using Node.js native fetch
-  console.log('[COMFY-GEN] Submitting to http://127.0.0.1:8188/prompt ...');
-  
+  const debugPath = path.join(TEMP_DIR, 'comfy_debug_' + Date.now() + '.json');
+  fs.writeFileSync(debugPath, payload, 'utf8');
+  console.log('[COMFY-GEN] Payload:', payload.length, 'bytes | debug:', debugPath);
+
   let queueData;
   try {
     const queueResp = await fetch('http://127.0.0.1:8188/prompt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload,
     });
-    
-    console.log('[COMFY-GEN] Response status:', queueResp.status);
-    console.log('[COMFY-GEN] Response headers:', JSON.stringify(Object.fromEntries(queueResp.headers.entries())));
-    
     const queueText = await queueResp.text();
-    console.log('[COMFY-GEN] Response body:', queueText.substring(0, 500));
-    
-    try {
-      queueData = JSON.parse(queueText);
-    } catch (jsonErr) {
-      console.log('[COMFY-GEN] ERROR: Failed to parse ComfyUI response as JSON');
-      return res.json({ error: 'Invalid response from ComfyUI', raw: queueText.substring(0, 300) });
-    }
+    console.log('[COMFY-GEN] Response status:', queueResp.status);
+    try { queueData = JSON.parse(queueText); }
+    catch (jsonErr) { return res.json({ error: 'Invalid ComfyUI response', raw: queueText.substring(0, 300) }); }
   } catch (fetchErr) {
-    console.log('[COMFY-GEN] FETCH ERROR:', fetchErr.message);
-    console.log('[COMFY-GEN] FETCH ERROR stack:', fetchErr.stack);
-    console.log('[COMFY-GEN] Is ComfyUI running at http://127.0.0.1:8188 ?');
-    return res.json({ error: 'Failed to connect to ComfyUI: ' + fetchErr.message });
+    return res.json({ error: 'Cannot connect to ComfyUI: ' + fetchErr.message });
   }
-  
-  if (queueData.error) {
-    console.log('[COMFY-GEN] ComfyUI rejected the prompt:', JSON.stringify(queueData.error).substring(0, 500));
-    if (queueData.node_errors) {
-      console.log('[COMFY-GEN] Node errors:', JSON.stringify(queueData.node_errors).substring(0, 500));
+
+  // --- A1: IPAdapter fallback ---
+  if (queueData.error && effectiveWorkflowId === 'background-scene-ipadapter') {
+    console.log('[COMFY-GEN] IPAdapter failed, falling back to seed-only...');
+    console.log('[COMFY-GEN] IPAdapter error:', JSON.stringify(queueData.error).substring(0, 300));
+    try {
+      const fbWfPath = path.join(__dirname, '..', 'src', 'config', 'workflows', (workflowId || 'background-scene') + '.json');
+      const fbTemplate = JSON.parse(fs.readFileSync(fbWfPath, 'utf8'));
+      const fbWorkflow = JSON.parse(JSON.stringify(fbTemplate.workflow));
+      for (const [nid, nd] of Object.entries(fbWorkflow)) {
+        if (!nd.inputs) continue;
+        for (const [k, v] of Object.entries(nd.inputs)) {
+          if (typeof v === 'string' && v === '{{positive}}') nd.inputs[k] = positive || 'beautiful image';
+          if (typeof v === 'string' && v === '{{negative}}') nd.inputs[k] = negative || 'blurry, ugly';
+        }
+        if (nd.class_type === 'EmptyLatentImage') { if (width) nd.inputs.width = width; if (height) nd.inputs.height = height; }
+        if (nd.class_type === 'KSampler') { nd.inputs.seed = seed || Math.floor(Math.random() * 1e15); }
+      }
+      const fbResp = await fetch('http://127.0.0.1:8188/prompt', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: fbWorkflow }),
+      });
+      queueData = await fbResp.json();
+      effectiveWorkflowId = workflowId || 'background-scene';
+      console.log('[COMFY-GEN] Fallback prompt_id:', queueData.prompt_id);
+    } catch (fbErr) {
+      return res.json({ error: 'Both IPAdapter and fallback failed: ' + fbErr.message });
     }
-    return res.json({ error: 'ComfyUI rejected: ' + JSON.stringify(queueData.error).substring(0, 300) });
   }
-  
+
+  if (queueData.error) return res.json({ error: 'ComfyUI rejected: ' + JSON.stringify(queueData.error).substring(0, 300) });
+
   const promptId = queueData.prompt_id;
-  if (!promptId) {
-    console.log('[COMFY-GEN] ERROR: No prompt_id in response:', JSON.stringify(queueData));
-    return res.json({ error: 'No prompt_id returned', data: queueData });
-  }
-  
-  console.log('[COMFY-GEN] SUCCESS — prompt_id:', promptId);
-  console.log('[COMFY-GEN] Now polling for completion (up to 180s)...');
-  
-  // Poll for completion
+  if (!promptId) return res.json({ error: 'No prompt_id', data: queueData });
+  console.log('[COMFY-GEN] prompt_id:', promptId, '| polling...');
+
+  // --- Poll for result ---
   for (let i = 0; i < 300; i++) {
     await new Promise(r => setTimeout(r, 2000));
-    
     try {
       const histResp = await fetch('http://127.0.0.1:8188/history/' + promptId);
       const histData = await histResp.json();
       const entry = histData[promptId];
-      
-      if (!entry) {
-        if (i % 5 === 0) console.log('[COMFY-GEN] Polling... (' + (i * 2) + 's)');
-        continue;
-      }
-      
-      console.log('[COMFY-GEN] History entry found, checking outputs...');
-      
+      if (!entry) { if (i % 5 === 0) console.log('[COMFY-GEN] Polling... (' + (i*2) + 's)'); continue; }
+
       for (const [nodeId, output] of Object.entries(entry.outputs || {})) {
-        if ((output.images && output.images.length > 0) || (output.gifs && output.gifs.length > 0)) {
-          const img = (output.images && output.images[0]) || (output.gifs && output.gifs[0]);
+        const imgList = output.images || output.gifs;
+        if (imgList && imgList.length > 0) {
+          const img = imgList[0];
           console.log('[COMFY-GEN] Image ready:', img.filename, 'from node', nodeId);
-          
-          // Download image
-          const imgUrl = 'http://127.0.0.1:8188/view?filename=' + encodeURIComponent(img.filename) 
-            + '&subfolder=' + encodeURIComponent(img.subfolder || '') 
+          const imgUrl = 'http://127.0.0.1:8188/view?filename=' + encodeURIComponent(img.filename)
+            + '&subfolder=' + encodeURIComponent(img.subfolder || '')
             + '&type=' + (img.type || 'output');
-          
           const imgResp = await fetch(imgUrl);
-          const imgArrayBuffer = await imgResp.arrayBuffer();
-          const imgBuffer = Buffer.from(imgArrayBuffer);
-          
+          const imgBuf = Buffer.from(await imgResp.arrayBuffer());
           const localName = 'ai_' + Date.now() + '_' + img.filename;
           const localPath = path.join(MEDIA_DIR, localName);
-          fs.writeFileSync(localPath, imgBuffer);
-          console.log('[COMFY-GEN] Saved to:', localPath, '(' + imgBuffer.length + ' bytes)');
-          
-          return res.json({ 
-            success: true, 
-            promptId,
-            imageFilename: img.filename,
-            localPath,
-            servePath: '/media/' + localName,
+          fs.writeFileSync(localPath, imgBuf);
+          console.log('[COMFY-GEN] Saved:', localPath, '(' + imgBuf.length + ' bytes)');
+          return res.json({
+            success: true, promptId, imageFilename: img.filename,
+            localPath, servePath: '/media/' + localName,
             serverUrl: 'http://localhost:' + PORT + '/media/' + localName,
+            usedIPAdapter: effectiveWorkflowId === 'background-scene-ipadapter',
           });
         }
       }
-    } catch (pollErr) {
-      console.log('[COMFY-GEN] Poll error:', pollErr.message);
-    }
+    } catch (pollErr) { console.log('[COMFY-GEN] Poll error:', pollErr.message); }
   }
-  
-  console.log('[COMFY-GEN] TIMEOUT — no image after 180s');
-  return res.json({ error: 'Generation timed out (600s)', promptId });
+  console.log('[COMFY-GEN] TIMEOUT after 600s');
+  return res.json({ error: 'Generation timed out' });
+});
 });
 
 

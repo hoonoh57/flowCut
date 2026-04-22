@@ -1,4 +1,4 @@
-import type { FlowScript, FlowScriptAction, FlowScriptClip, FlowScriptMedia, FlowScriptTrack } from "./flowscript.schema";
+﻿import type { FlowScript, FlowScriptAction, FlowScriptClip, FlowScriptMedia, FlowScriptTrack } from "./flowscript.schema";
 import { DEFAULT_PROJECT } from '../types/project';
 import { useEditorStore } from "../stores/editorStore";
 import { createDefaultClip } from "../types/clip";
@@ -226,7 +226,7 @@ export class ScriptEngine {
         try {
           const resp = await fetch("http://localhost:3456/api/comfyui/generate", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ workflowId: (media.aiWorkflow === "image-to-video" || media.aiWorkflow === "video-i2v") ? "background-scene" : (media.aiWorkflow || "background-scene"), positive: (() => { const p = media.aiPrompt || media.src.replace("ai://", ""); this.log.push("[Media] ComfyUI positive: " + p.substring(0, 120)); return p; })(), width: 1024, height: 1024, seed: (media as any)._seeds ? Object.values((media as any)._seeds)[0] as number : undefined }),
+            body: JSON.stringify({ workflowId: (media.aiWorkflow === "image-to-video" || media.aiWorkflow === "video-i2v") ? "background-scene" : (media.aiWorkflow || "background-scene"), positive: (() => { const p = media.aiPrompt || media.src.replace("ai://", ""); this.log.push("[Media] ComfyUI positive: " + p.substring(0, 120)); return p; })(), width: 1024, height: 1024, seed: (media as any)._seeds ? Object.values((media as any)._seeds)[0] as number : undefined, characterRefs: (media as any)._characterRefs || [] }),
           });
           const data = await resp.json();
           if (data.success) {
@@ -267,6 +267,19 @@ export class ScriptEngine {
               }
             }
 
+                        // === A1: Auto-save first image as face reference ===
+            if (data.localPath && (media as any)._seeds) {
+              try {
+                const regMod = await import('../registry/CharacterRegistry');
+                for (const [charKey] of Object.entries((media as any)._seeds)) {
+                  const existing = regMod.getCharacter(charKey);
+                  if (existing && !existing.sheets.front) {
+                    regMod.updateCharacterSheets(charKey, { front: data.localPath });
+                    this.log.push("[A1] Auto-saved face ref for " + charKey + ": " + data.localPath);
+                  }
+                }
+              } catch (regErr: any) { this.log.push("[A1] Registry update skipped: " + (regErr.message || regErr)); }
+            }
             this.log.push("[Media] AI generated: " + data.localPath + " | url: " + (data.serverUrl && data.serverUrl.startsWith("http") ? data.serverUrl : "http://localhost:3456/media/" + (data.localPath || "").split(/[\\/]/).pop()));
           } else { this.errors.push("[Media] AI failed: " + (data.error || "unknown")); }
         } catch (err: any) { this.errors.push("[Media] AI error: " + err.message); }
