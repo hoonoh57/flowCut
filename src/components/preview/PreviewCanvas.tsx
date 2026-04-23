@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+﻿import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { useEditorStore } from '../../stores/editorStore';
 import { UpdateClipCommand } from '../../stores/commands/UpdateClipCommand';
 import { getVisibleClips } from '../../engines/RenderEngine';
@@ -92,7 +92,7 @@ const TextCanvasPreview: React.FC<{ clip: Clip; currentFrame?: number; fps?: num
   );
 };
 
-const ClipMedia: React.FC<{ clip: Clip; isPlaying: boolean; currentFrame: number; fps: number; mediaItems?: any[] }> = ({ clip, isPlaying, currentFrame, fps, mediaItems }) => {
+const ClipMedia: React.FC<{ clip: Clip; isPlaying: boolean; currentFrame: number; fps: number; mediaItems?: any[]; tracks?: any[] }> = ({ clip, isPlaying, currentFrame, fps, mediaItems, tracks }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const targetTime = (currentFrame - clip.startFrame) / fps * (clip.speed || 1);
   useEffect(() => {
@@ -107,7 +107,12 @@ const ClipMedia: React.FC<{ clip: Clip; isPlaying: boolean; currentFrame: number
     if (clip.fadeIn > 0 && localFrame < clip.fadeIn) vol *= localFrame / clip.fadeIn;
     if (clip.fadeOut > 0 && localFrame > clip.durationFrames - clip.fadeOut) vol *= (clip.durationFrames - localFrame) / clip.fadeOut;
     v.volume = Math.min(1, Math.max(0, vol));
-    v.muted = clip.muted;
+    // Track-level Mute/Solo
+    const clipTrack = (tracks || []).find((t: any) => t.id === clip.trackId);
+    const hasSoloTrack = (tracks || []).some((t: any) => t.solo === true);
+    const trackMuted = clipTrack?.muted === true;
+    const soloBlocked = hasSoloTrack && !clipTrack?.solo;
+    v.muted = clip.muted || trackMuted || soloBlocked;
     if (isPlaying) {
       if (v.paused) v.play().catch(() => {});
       // Drift correction: if video drifts more than 0.15s, re-sync
@@ -278,6 +283,7 @@ export const PreviewCanvas: React.FC = () => {
   const setFitMode = useEditorStore((s) => s.setFitMode);
   const selectedClipIds = useEditorStore((s) => s.selectedClipIds);
   const mediaItems = useEditorStore((s) => s.mediaItems);
+  const tracks = useEditorStore((s) => s.tracks);
   const clearSelection = useEditorStore((s) => s.clearSelection);
   const [guideMode, setGuideMode] = useState<GuideMode>('off');
   const canvasWrapRef = useRef<HTMLDivElement>(null);
@@ -347,7 +353,7 @@ export const PreviewCanvas: React.FC = () => {
                   opacity, filter: getClipFilter(clip),
                   transition: 'opacity 0.05s linear', overflow: 'hidden',
                 }}>
-                  <ClipMedia clip={clip} isPlaying={isPlaying} currentFrame={currentFrame} fps={fps} mediaItems={mediaItems} />
+                  <ClipMedia clip={clip} isPlaying={isPlaying} currentFrame={currentFrame} fps={fps} mediaItems={mediaItems} tracks={tracks} />
                 </div>
               );
             })}

@@ -1,8 +1,20 @@
-import { useEffect, useRef } from 'react';
+﻿import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../stores/editorStore';
 import { getEnvelopeVolume } from '../types/clip';
 import { getClipPreviewUrl } from '../utils/mediaResolver';
 
+function isClipAudible(clipId: string, clips: any[], tracks: any[]): boolean {
+  const clip = clips.find((c: any) => c.id === clipId);
+  if (!clip) return false;
+  if (clip.muted) return false;
+  const track = tracks.find((t: any) => t.id === clip.trackId);
+  if (!track) return true;
+  if (track.muted) return false;
+  // Solo logic: if ANY track has solo=true, only clips on solo tracks are audible
+  const hasSolo = tracks.some((t: any) => t.solo === true);
+  if (hasSolo && !track.solo) return false;
+  return true;
+}
 export function usePlayback() {
   const rafRef = useRef<number>(0);
   const prevTimeRef = useRef<number>(0);
@@ -51,7 +63,7 @@ export function usePlayback() {
         const clip = state.clips.find(c => c.id === clipId);
         if (!clip) { el.pause(); continue; }
         const inRange = frame >= clip.startFrame && frame < clip.startFrame + clip.durationFrames;
-        if (inRange && !clip.muted) {
+        if (inRange && isClipAudible(clipId, state.clips, state.tracks)) {
           const lf = frame - clip.startFrame;
           const targetTime = (lf / state.fps) * (clip.speed || 1);
           try { el.playbackRate = clip.speed || 1; } catch {}

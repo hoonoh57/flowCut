@@ -1,8 +1,28 @@
-import React, { useState } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useEditorStore } from '../../stores/editorStore';
 import { UpdateClipCommand } from '../../stores/commands/UpdateClipCommand';
+import { AddClipCommand } from '../../stores/commands/AddClipCommand';
+import { AddTrackCommand } from '../../stores/commands/AddTrackCommand';
+import { createDefaultClip } from '../../types/clip';
+import { uid } from '../../utils/uid';
+import { findNextAvailableFrame } from '../../engines/CollisionEngine';
 import { theme } from '../../styles/theme';
 import type { VolumePoint } from '../../types/clip';
+import type { Track } from '../../types/track';
+
+/* ── Voice Presets ── */
+const VOICE_PRESETS = [
+  { id: 'ko-KR-SunHiNeural', label: '선희 (여, 한국어)', lang: 'ko' },
+  { id: 'ko-KR-InJoonNeural', label: '인준 (남, 한국어)', lang: 'ko' },
+  { id: 'ko-KR-HyunsuNeural', label: '현수 (남, 한국어)', lang: 'ko' },
+  { id: 'en-US-JennyNeural', label: 'Jenny (F, English)', lang: 'en' },
+  { id: 'en-US-GuyNeural', label: 'Guy (M, English)', lang: 'en' },
+  { id: 'en-US-AriaNeural', label: 'Aria (F, English)', lang: 'en' },
+  { id: 'ja-JP-NanamiNeural', label: 'Nanami (F, 日本語)', lang: 'ja' },
+  { id: 'ja-JP-KeitaNeural', label: 'Keita (M, 日本語)', lang: 'ja' },
+  { id: 'zh-CN-XiaoxiaoNeural', label: 'Xiaoxiao (F, 中文)', lang: 'zh' },
+  { id: 'zh-CN-YunxiNeural', label: 'Yunxi (M, 中文)', lang: 'zh' },
+];
 
 const AUDIO_PRESETS = [
   { id: 'A01', name: 'Fade In', icon: '🔊', apply: { fadeIn: 30 } },
@@ -33,10 +53,105 @@ export const AudioPanel: React.FC = () => {
   const clips = useEditorStore(s => s.clips);
   const dispatch = useEditorStore(s => s.dispatch);
   const tracks = useEditorStore(s => s.tracks);
+  const fps = useEditorStore(s => s.fps);
+  const addMediaItem = useEditorStore(s => s.addMediaItem);
 
   const selectedClip = clips.find(c => c.id === selectedClipIds[0]);
   const audioClips = clips.filter(c => c.type === 'audio' || c.type === 'video');
   const isMedia = selectedClip && (selectedClip.type === 'video' || selectedClip.type === 'audio');
+
+  /* ── TTS State ── */
+  const [ttsText, setTtsText] = useState('');
+  const [ttsVoice, setTtsVoice] = useState('ko-KR-SunHiNeural');
+  const [ttsLang, setTtsLang] = useState('ko');
+  const [ttsLoading, setTtsLoading] = useState(false);
+  const [ttsStatus, setTtsStatus] = useState('');
+  const [ttsHealth, setTtsHealth] = useState<boolean | null>(null);
+
+  /* ── Check TTS server health on mount ── */
+  useEffect(() => {
+    fetch('http://localhost:3456/api/health')
+      .then(r => r.json())
+      .then(d => setTtsHealth(d.ok === true))
+      .catch(() => setTtsHealth(false));
+  }, []);
+
+  /* ── Sync language when voice changes ── */
+  const handleVoiceChange = (voiceId: string) => {
+    setTtsVoice(voiceId);
+    const preset = VOICE_PRESETS.find(v => v.id === voiceId);
+    if (preset) setTtsLang(preset.lang);
+  };
+
+  /* ── Generate TTS ── */
+  const handleGenerateTTS = async () => {
+    if (!ttsText.trim()) { setTtsStatus('텍스트를 입력하세요'); return; }
+    setTtsLoading(true);
+    setTtsStatus('음성 생성 중...');
+    try {
+      const resp = await fetch('http://localhost:3456/api/tts/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: ttsText, language: ttsLang, voice: ttsVoice }),
+      });
+      const data = await resp.json();
+      if (!data.success) {
+        setTtsStatus('생성 실패: ' + (data.error || 'unknown'));
+        setTtsLoading(false);
+        return;
+      }
+
+      /* Add to media library */
+      const mediaId = 'tts_' + uid();
+      const serverUrl = data.serverUrl || ('http://localhost:3456' + data.servePath);
+      const duration = data.duration || 5;
+      addMediaItem({
+        id: mediaId,
+        name: 'TTS: ' + ttsText.substring(0, 25) + (ttsText.length > 25 ? '...' : ''),
+        type: 'audio',
+        url: serverUrl,
+        localPath: data.localPath || '',
+        duration: duration,
+        size: 0,
+      });
+
+      /* Ensure audio track exists */
+      let audioTrack = tracks.find(t => t.type === 'audio');
+      if (!audioTrack) {
+        const newTrack: Track = {
+          id: 'a1', name: '오디오 a1', type: 'audio', order: 100,
+          height: 60, color: theme.colors.track.audio,
+          locked: false, visible: true, muted: false, solo: false,
+        };
+        dispatch(new AddTrackCommand(newTrack));
+        audioTrack = newTrack;
+      }
+
+      /* Add clip to timeline */
+      const startFrame = findNextAvailableFrame(audioTrack.id, clips);
+      const durationFrames = Math.round(duration * fps);
+      const clip = createDefaultClip({
+        id: uid(),
+        name: 'TTS: ' + ttsText.substring(0, 20),
+        type: 'audio',
+        trackId: audioTrack.id,
+        startFrame,
+        durationFrames,
+        src: serverUrl,
+        mediaId,
+        localPath: data.localPath || '',
+        volume: 100,
+        muted: false,
+      });
+      dispatch(new AddClipCommand(clip));
+
+      setTtsStatus('생성 완료! ' + duration.toFixed(1) + '초 (' + (data.rate || '') + ')');
+      setTtsText('');
+    } catch (err: any) {
+      setTtsStatus('서버 연결 실패: ' + err.message);
+    }
+    setTtsLoading(false);
+  };
 
   const applyPreset = (preset: typeof AUDIO_PRESETS[0]) => {
     if (!selectedClip) return;
@@ -61,7 +176,93 @@ export const AudioPanel: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {/* Selected clip controls */}
+
+      {/* ════════════ TTS 음성 생성 ════════════ */}
+      <div style={{
+        display: 'flex', flexDirection: 'column', gap: 8, padding: 10,
+        borderRadius: 8, background: theme.colors.bg.elevated,
+        border: '1px solid ' + theme.colors.accent.green + '44',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: 12, color: theme.colors.accent.green, fontWeight: 700 }}>
+            🎙️ TTS 음성 생성
+          </div>
+          <div style={{
+            fontSize: 9, padding: '2px 6px', borderRadius: 4,
+            background: ttsHealth === true ? theme.colors.accent.green + '22' : ttsHealth === false ? theme.colors.accent.red + '22' : theme.colors.bg.tertiary,
+            color: ttsHealth === true ? theme.colors.accent.green : ttsHealth === false ? theme.colors.accent.red : theme.colors.text.muted,
+          }}>
+            {ttsHealth === true ? '서버 연결됨' : ttsHealth === false ? '서버 미연결' : '확인 중...'}
+          </div>
+        </div>
+
+        {/* Voice selector */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 10, color: theme.colors.text.muted, width: 36, flexShrink: 0 }}>보이스</span>
+          <select value={ttsVoice} onChange={e => handleVoiceChange(e.target.value)} style={{
+            flex: 1, padding: '4px 6px', fontSize: 11,
+            background: theme.colors.bg.secondary, color: theme.colors.text.primary,
+            border: '1px solid ' + theme.colors.border.default, borderRadius: 4, outline: 'none',
+          }}>
+            {VOICE_PRESETS.map(v => (
+              <option key={v.id} value={v.id}>{v.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Text input */}
+        <textarea
+          value={ttsText}
+          onChange={e => setTtsText(e.target.value)}
+          placeholder="음성으로 변환할 텍스트를 입력하세요..."
+          rows={3}
+          style={{
+            width: '100%', padding: 8, fontSize: 12, resize: 'vertical',
+            background: theme.colors.bg.secondary, color: theme.colors.text.primary,
+            border: '1px solid ' + theme.colors.border.default, borderRadius: 4,
+            outline: 'none', fontFamily: 'inherit', lineHeight: 1.5,
+            boxSizing: 'border-box',
+          }}
+        />
+
+        {/* Character count */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 9, color: theme.colors.text.muted }}>
+            {ttsText.length}자 {ttsText.length > 200 ? '(자동 문장 분할)' : ''}
+          </span>
+          {ttsStatus && (
+            <span style={{
+              fontSize: 9, color: ttsStatus.includes('실패') || ttsStatus.includes('연결')
+                ? theme.colors.accent.red
+                : ttsStatus.includes('완료') ? theme.colors.accent.green : theme.colors.accent.amber,
+            }}>
+              {ttsStatus}
+            </span>
+          )}
+        </div>
+
+        {/* Generate button */}
+        <button
+          onClick={handleGenerateTTS}
+          disabled={ttsLoading || !ttsText.trim() || ttsHealth === false}
+          style={{
+            padding: '8px 0', borderRadius: 6, border: 'none', cursor: ttsLoading ? 'wait' : 'pointer',
+            background: ttsLoading ? theme.colors.bg.tertiary : theme.colors.accent.green,
+            color: '#fff', fontSize: 12, fontWeight: 700,
+            opacity: (!ttsText.trim() || ttsHealth === false) ? 0.4 : 1,
+            transition: 'background 0.2s',
+          }}
+        >
+          {ttsLoading ? '생성 중...' : '🎙️ 음성 생성 → 타임라인에 추가'}
+        </button>
+
+        {/* Quick tip */}
+        <div style={{ fontSize: 9, color: theme.colors.text.muted, lineHeight: 1.4 }}>
+          💡 텍스트 입력 → 보이스 선택 → 생성 버튼 클릭. 200자 초과 시 자동으로 문장 단위 분할 생성됩니다.
+        </div>
+      </div>
+
+      {/* ════════════ Selected clip controls (기존 코드) ════════════ */}
       {isMedia && selectedClip && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 10, borderRadius: 8, background: theme.colors.bg.elevated, border: `1px solid ${theme.colors.border.subtle}` }}>
           <div style={{ fontSize: 12, color: theme.colors.text.primary, fontWeight: 600 }}>{selectedClip.name}</div>

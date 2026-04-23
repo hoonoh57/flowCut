@@ -1173,55 +1173,175 @@ app.delete('/api/registry/character/:key', (req, res) => {
 // =========================================================================
 // TTS (Text-to-Speech) via Edge TTS — Phase 3.5
 // =========================================================================
+// =========================================================================
+// A3: TTS Generate — sentence splitting, speed control, voice presets
+// =========================================================================
+
+// Voice presets with recommended speed/pitch settings
+const VOICE_PRESETS = {
+  'ko': { voice: 'ko-KR-SunHiNeural', rate: '+0%', pitch: '+0Hz', label: 'Korean Female (SunHi)' },
+  'ko-male': { voice: 'ko-KR-InJoonNeural', rate: '+0%', pitch: '+0Hz', label: 'Korean Male (InJoon)' },
+  'ko-child': { voice: 'ko-KR-SunHiNeural', rate: '+10%', pitch: '+20Hz', label: 'Korean Child' },
+  'ko-elder': { voice: 'ko-KR-InJoonNeural', rate: '-10%', pitch: '-10Hz', label: 'Korean Elder' },
+  'ko-narrator': { voice: 'ko-KR-SunHiNeural', rate: '-5%', pitch: '-5Hz', label: 'Korean Narrator' },
+  'en': { voice: 'en-US-JennyNeural', rate: '+0%', pitch: '+0Hz', label: 'English Female (Jenny)' },
+  'en-male': { voice: 'en-US-GuyNeural', rate: '+0%', pitch: '+0Hz', label: 'English Male (Guy)' },
+  'en-narrator': { voice: 'en-US-AriaNeural', rate: '-5%', pitch: '-5Hz', label: 'English Narrator (Aria)' },
+  'ja': { voice: 'ja-JP-NanamiNeural', rate: '+0%', pitch: '+0Hz', label: 'Japanese Female (Nanami)' },
+  'ja-male': { voice: 'ja-JP-KeitaNeural', rate: '+0%', pitch: '+0Hz', label: 'Japanese Male (Keita)' },
+  'zh': { voice: 'zh-CN-XiaoxiaoNeural', rate: '+0%', pitch: '+0Hz', label: 'Chinese Female (Xiaoxiao)' },
+  'zh-male': { voice: 'zh-CN-YunjianNeural', rate: '+0%', pitch: '+0Hz', label: 'Chinese Male (Yunjian)' },
+};
+
+// Split text into sentences for reliable TTS
+function splitSentences(text) {
+  // Split on sentence-ending punctuation (Korean, English, Japanese, Chinese)
+  const parts = text.split(/(?<=[.!?。！？\n])\s*/g).filter(s => s.trim().length > 0);
+  if (parts.length === 0) return [text];
+  // Merge very short fragments (< 10 chars) with previous
+  const merged = [];
+  for (const p of parts) {
+    if (merged.length > 0 && p.trim().length < 10) {
+      merged[merged.length - 1] += ' ' + p.trim();
+    } else {
+      merged.push(p.trim());
+    }
+  }
+  return merged;
+}
+
+// Generate TTS for a single chunk
+async function generateTTSChunk(text, voiceName, rate, pitch, outPath) {
+  const ttsTextFile = path.join(TEMP_DIR, 'tts_chunk_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) + '.txt');
+  fs.writeFileSync(ttsTextFile, text, 'utf8');
+  const args = ['--voice', voiceName, '--file', ttsTextFile, '--write-media', outPath];
+  if (rate && rate !== '+0%') args.push('--rate', rate);
+  if (pitch && pitch !== '+0Hz') args.push('--pitch', pitch);
+  return new Promise((resolve, reject) => {
+    const proc = spawn('edge-tts', args, { shell: true });
+    let stderr = '';
+    proc.stderr.on('data', d => stderr += d.toString());
+    proc.on('close', code => {
+      try { fs.unlinkSync(ttsTextFile); } catch(e) {}
+      if (code === 0 && fs.existsSync(outPath)) resolve();
+      else reject(new Error('edge-tts chunk failed (code ' + code + '): ' + stderr.slice(-200)));
+    });
+    proc.on('error', reject);
+  });
+}
+
+// Get audio duration via ffprobe
+function getAudioDuration(filePath) {
+  try {
+    const probe = require('child_process').execSync(
+      '"E:/ffmpeg/bin/ffprobe.exe" -v quiet -show_entries format=duration -of csv=p=0 "' + filePath + '"',
+      { encoding: 'utf8', timeout: 10000 }
+    );
+    return parseFloat(probe.trim()) || 0;
+  } catch (e) { return 0; }
+}
+
+// Concat multiple audio files via FFmpeg
+async function concatAudioFiles(files, outPath) {
+  const listFile = path.join(TEMP_DIR, 'concat_' + Date.now() + '.txt');
+  const listContent = files.map(f => "file '" + f.replace(/\\/g, '/') + "'").join('\n');
+  fs.writeFileSync(listFile, listContent, 'utf8');
+  return new Promise((resolve, reject) => {
+    const args = ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', outPath];
+    const proc = spawn(FFMPEG, args);
+    let stderr = '';
+    proc.stderr.on('data', d => stderr += d.toString());
+    proc.on('close', code => {
+      try { fs.unlinkSync(listFile); } catch(e) {}
+      files.forEach(f => { try { fs.unlinkSync(f); } catch(e) {} });
+      if (code === 0 && fs.existsSync(outPath)) resolve();
+      else reject(new Error('Concat failed: ' + stderr.slice(-200)));
+    });
+    proc.on('error', reject);
+  });
+}
+
+// Adjust audio speed to fit target duration via FFmpeg atempo
+async function adjustAudioSpeed(inputPath, targetDuration, outPath) {
+  const currentDur = getAudioDuration(inputPath);
+  if (currentDur <= 0 || targetDuration <= 0) return false;
+  const ratio = currentDur / targetDuration;
+  // atempo range: 0.5 - 2.0
+  if (ratio < 0.6 || ratio > 1.8) return false; // too extreme, skip
+  if (Math.abs(ratio - 1.0) < 0.05) return false; // close enough
+  return new Promise((resolve, reject) => {
+    const args = ['-y', '-i', inputPath, '-af', 'atempo=' + ratio.toFixed(4), '-c:a', 'libmp3lame', '-q:a', '2', outPath];
+    const proc = spawn(FFMPEG, args);
+    let stderr = '';
+    proc.stderr.on('data', d => stderr += d.toString());
+    proc.on('close', code => {
+      if (code === 0 && fs.existsSync(outPath)) resolve(true);
+      else resolve(false);
+    });
+    proc.on('error', () => resolve(false));
+  });
+}
+
 app.post('/api/tts/generate', async (req, res) => {
-  const { text, language, voice, outputName } = req.body;
+  const { text, language, voice, outputName, rate, pitch, targetDuration, splitMode } = req.body;
   if (!text) return res.json({ success: false, error: 'No text provided' });
 
-  const voiceMap = {
-    'ko': 'ko-KR-SunHiNeural',
-    'ko-male': 'ko-KR-InJoonNeural',
-    'en': 'en-US-JennyNeural',
-    'en-male': 'en-US-GuyNeural',
-    'ja': 'ja-JP-NanamiNeural',
-    'zh': 'zh-CN-XiaoxiaoNeural',
-  };
-  const selectedVoice = voice || voiceMap[language || 'ko'] || voiceMap['ko'];
+  // Resolve voice preset
+  const preset = VOICE_PRESETS[voice] || VOICE_PRESETS[language || 'ko'] || VOICE_PRESETS['ko'];
+  const selectedVoice = (voice && voice.includes('Neural')) ? voice : preset.voice;
+  const selectedRate = rate || preset.rate;
+  const selectedPitch = pitch || preset.pitch;
   const outName = outputName || ('tts_' + Date.now() + '.mp3');
   const outPath = path.join(MEDIA_DIR, outName);
 
-  console.log('[TTS] text:', text.substring(0, 80), '| voice:', selectedVoice);
+  console.log('[TTS] text:', text.substring(0, 80), '| voice:', selectedVoice, '| rate:', selectedRate, '| pitch:', selectedPitch);
 
   try {
-    await new Promise((resolve, reject) => {
-      // Write text to temp file to avoid encoding issues on Windows
-    const ttsTextFile = path.join(TEMP_DIR, 'tts_input_' + Date.now() + '.txt');
-    fs.writeFileSync(ttsTextFile, text, 'utf8');
-    const proc = spawn('edge-tts', [
-        '--voice', selectedVoice,
-        '--file', ttsTextFile,
-        '--write-media', outPath,
-      ], { shell: true });
+    const shouldSplit = splitMode !== false && text.length > 200;
 
-      let stderr = '';
-      proc.stderr.on('data', d => stderr += d.toString());
-      proc.on('close', code => {
-        if (code === 0 && fs.existsSync(outPath)) resolve();
-        else reject(new Error('edge-tts failed (code ' + code + '): ' + stderr));
-      });
-      proc.on('error', reject);
-    });
+    if (shouldSplit) {
+      // A3: Sentence-level splitting for long text
+      const sentences = splitSentences(text);
+      console.log('[TTS] Split into', sentences.length, 'chunks');
+      const chunkFiles = [];
 
-    // Get duration
-    let duration = 5;
-    try {
-      const probe = require('child_process').execSync(
-        '"E:/ffmpeg/bin/ffprobe.exe" -v quiet -show_entries format=duration -of csv=p=0 "' + outPath + '"',
-        { encoding: 'utf8', timeout: 10000 }
-      );
-      duration = parseFloat(probe.trim()) || 5;
-    } catch (e) { /* fallback */ }
+      for (let i = 0; i < sentences.length; i++) {
+        const chunkPath = path.join(TEMP_DIR, 'tts_part_' + Date.now() + '_' + i + '.mp3');
+        await generateTTSChunk(sentences[i], selectedVoice, selectedRate, selectedPitch, chunkPath);
+        chunkFiles.push(chunkPath);
+        console.log('[TTS] Chunk', (i+1) + '/' + sentences.length, ':', sentences[i].substring(0, 40));
+      }
 
-    console.log('[TTS] Success:', outPath, '(' + duration.toFixed(1) + 's)');
+      if (chunkFiles.length === 1) {
+        fs.renameSync(chunkFiles[0], outPath);
+      } else {
+        await concatAudioFiles(chunkFiles, outPath);
+      }
+    } else {
+      // Short text — single generation
+      await generateTTSChunk(text, selectedVoice, selectedRate, selectedPitch, outPath);
+    }
+
+    // Get final duration
+    let duration = getAudioDuration(outPath);
+    if (duration <= 0) duration = 5;
+
+    // A3: Adjust speed to match target scene duration if specified
+    let adjusted = false;
+    if (targetDuration && targetDuration > 0 && Math.abs(duration - targetDuration) > 0.5) {
+      const adjustedPath = path.join(MEDIA_DIR, 'adj_' + outName);
+      const result = await adjustAudioSpeed(outPath, targetDuration, adjustedPath);
+      if (result) {
+        fs.unlinkSync(outPath);
+        fs.renameSync(adjustedPath, outPath);
+        const newDur = getAudioDuration(outPath);
+        console.log('[TTS] Speed adjusted:', duration.toFixed(1) + 's ->', newDur.toFixed(1) + 's (target:', targetDuration.toFixed(1) + 's)');
+        duration = newDur > 0 ? newDur : duration;
+        adjusted = true;
+      }
+    }
+
+    console.log('[TTS] Success:', outPath, '(' + duration.toFixed(1) + 's)', adjusted ? '[speed-adjusted]' : '');
     res.json({
       success: true,
       localPath: outPath,
@@ -1229,11 +1349,19 @@ app.post('/api/tts/generate', async (req, res) => {
       serverUrl: 'http://localhost:' + PORT + '/media/' + outName,
       duration,
       voice: selectedVoice,
+      rate: selectedRate,
+      pitch: selectedPitch,
+      speedAdjusted: adjusted,
     });
   } catch (err) {
     console.log('[TTS] Error:', err.message);
     res.json({ success: false, error: err.message });
   }
+});
+
+// Voice presets list endpoint
+app.get('/api/tts/voices', (req, res) => {
+  res.json({ success: true, presets: VOICE_PRESETS });
 });
 
 

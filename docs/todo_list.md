@@ -59,3 +59,80 @@ B5. P3 장기 기능
 🟡 9	신규	B1. 프로젝트 템플릿	"바로 쓸 수 있는" 경험 제공으로 첫인상 극대화
 ⚪ 10	신규	B5. 립싱크/협업/플러그인	장기 플랫폼화 과제, 현재는 코어 품질이 우선
 핵심 메시지는 **"지금은 새 기능보다 기존 기능의 품질 격차 해소가 더 급하다"**입니다. 특히 IPAdapter 이중화, AI 업스케일, 프레임 보간 이 세 가지가 해결되면 FlowCut의 "세계관 일관성 + 로컬 NLE"라는 포지셔닝이 데모가 아닌 실전 도구로 전환되는 변곡점이 될 것입니다.
+
+
+#===========================================================================================================================================
+# 2차 업데이트 : 2026년 4월 23일 13:14
+#===========================================================================================================================================
+FlowCut TODO 리스트 v2 (2026-04-23)
+완료된 항목 ✅
+항목	커밋	핵심 변경
+A1. IPAdapter 일관성 이중화	eec36df	background-scene-ipadapter.json 워크플로우, server.cjs 자동 선택 + 폴백, ScriptEngine characterRefs 전달 + 첫 이미지 자동 face ref 저장
+A2. AI 업스케일 + 프레임 보간	727921a	/api/comfyui/upscale AI 4x-UltraSharp + FFmpeg 폴백, /api/interpolate minterpolate 16→30fps, /api/enhance-video 원콜 파이프라인, ScriptEngine i2v 후 자동 enhance
+A3. TTS 문장 분할 + 보이스 프리셋	(server push 완료, 커밋은 대화에서 확인)	12개 보이스 프리셋(ko/en/ja/zh), 200자 초과 문장 분할, targetDuration 속도 조절, /api/tts/voices 엔드포인트
+Part A. 보완 — 남은 작업
+A3. TTS 추가 보완 (부분 완료)
+
+✅ 문장 분할 생성 후 결합
+✅ 보이스 프리셋 기본값 (12종)
+⬜ TTS 길이와 씬 클립 길이 자동 동기화 (ScriptEngine에서 TTS duration > clip duration 시 클립 연장 또는 음성 속도 조절 자동 적용)
+⬜ 실제 Edge TTS 보이스별 품질 검증 및 rate/pitch 미세 튜닝
+A4. NLE 에디터 안정화
+
+⬜ 다수 비디오 클립 프리뷰 성능 최적화 (비활성 클립 비디오 디코딩 해제, 썸네일 캐싱)
+⬜ 크로스페이드 전환 프리뷰 (현재 FFmpeg Export 시에만 적용 → WebGL 기반 실시간 프리뷰)
+⬜ 대규모 프로젝트(20+ 트랙, 100+ 클립) 저장/로드 성능 검증
+⬜ FlowScript 27개 액션 에러 핸들링 점검 (특히 AI 액션: generateImage, generateVideo, generateTTS의 타임아웃/재시도/폴백)
+A5. 개발 인프라
+
+⬜ FlowScript 액션별 단위 테스트 (Vitest)
+⬜ 파이프라인 통합 테스트 (Playwright)
+⬜ 서버 + 클라이언트 구조화 에러 로깅
+⬜ ComfyUI 응답 실패 원인 추적 로그 강화
+Part B. 신규 기능 — 남은 작업
+B1. 영상 확장 (P2 Week 3)
+
+⬜ 무한 비디오 체이닝: 앞 클립 마지막 프레임 → 다음 클립 시작 이미지로 연속 장면 생성
+⬜ 모션 라이브러리 UI: 42종 카메라 무브먼트 드래그&드롭 선택/조합
+⬜ 프로젝트 템플릿: YouTube Shorts, Instagram Reels, YouTube Video, 광고 등 사전 정의 beat 구조
+B2. 플랫폼 확장 (P2 Week 4)
+
+⬜ 클라우드 Provider 실제 구현 (fal.ai/Replicate/RunPod 중 1개)
+⬜ 배치 Export (동일 프로젝트 → 16:9 + 9:16 + 1:1 동시 내보내기)
+⬜ A/B 배리언트 생성 (다른 프롬프트, 같은 구조)
+⬜ 전체 파이프라인 end-to-end 테스트
+B3. 오디오 완성
+
+⬜ BGM 생성/라이브러리 (MusicGen 또는 로컬 음악 생성 통합)
+⬜ 볼륨 덕킹 자동화 (나레이션 구간 BGM 자동 감쇠 + 복원, 커브/dB 설정)
+⬜ SFX 효과음 라이브러리 (전환/강조 효과음 내장, 씬 타입별 자동 추천)
+B4. 사용자 경험
+
+⬜ 온보딩 위자드 (FFmpeg/ComfyUI/Ollama 설치 상태 자동 감지)
+⬜ 프롬프트 어시스턴트 UI (World Context + 캐릭터 카드 시각적 편집)
+⬜ 생성 진행률 대시보드 (LLM → 이미지 → i2v → 업스케일 → TTS 각 단계 실시간 UI)
+B5. 장기 기능 (P3)
+
+⬜ 립싱크/아바타 (TTS → 캐릭터 입 모양 동기화)
+⬜ 실시간 협업 (WebSocket 기반 다중 사용자 편집)
+⬜ 플러그인 시스템 (커스텀 ComfyUI 워크플로우, 커뮤니티 마켓플레이스)
+⬜ 클라우드 GPU 렌더팜 (렌더 큐 관리, 비용 추적)
+업데이트된 우선순위 (A1·A2·A3 완료 반영)
+순위	구분	항목	상태	이유
+1	보완	A1. IPAdapter	✅ eec36df	—
+2	보완	A2. AI 업스케일 + 보간	✅ 727921a	—
+1	신규	B1. 무한 비디오 체이닝	⬜	5초 제한 해제가 "완성 영상" 비전의 실현 조건
+2	신규	B3. BGM + 볼륨 덕킹	⬜	TTS만으로는 영상 완성도 부족
+3	보완	A4. 크로스페이드 프리뷰 + 성능	⬜	편집 중 결과 미확인 → NLE 신뢰도 하락
+4	보완	A3. TTS 클립 동기화 마무리	⬜	기본 구조 완료, 세밀 동기화만 남음
+5	보완	A5. 자동화 테스트	⬜	기능 추가 속도↑ = 회귀 버그 리스크↑
+6	신규	B2. 클라우드 Provider	⬜	GPU 진입 장벽 해소
+7	신규	B4. 온보딩 + 프롬프트 UI	⬜	JSON 직접 편집 → 일반 사용자 접근 불가
+8	신규	B1. 프로젝트 템플릿	⬜	"바로 쓸 수 있는" 경험
+9	신규	B5. 립싱크/협업/플러그인	⬜	장기 플랫폼화 과제
+코드 상태 메모
+README.md: Phase 3.4까지만 기록 → Phase 3.5~3.7, A1, A2, A3 반영 필요
+ROADMAP.md: Phase 3.6까지 기록 → A1(IPAdapter), A2(enhance), A3(TTS 강화) 추가 필요
+SCRIPT_API.md: 52% 기록 → 실제 ScriptEngine에는 27+개 액션 구현됨, 문서 갱신 필요
+TypeScript 빌드 에러: ExportPanel.tsx, ClipInspector.tsx 등 기존 타입 에러 존재 (A1/A2와 무관)
+구현내용및보완계획.txt: 루트에 한글 파일명 존재 → docs/IMPLEMENTATION_NOTES.md로 이동 또는 삭제 권장
