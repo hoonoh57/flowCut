@@ -237,11 +237,38 @@ export class ScriptEngine {
             // Phase 3.3: Image-to-Video conversion
             if (media.aiWorkflow === "image-to-video" || media.aiWorkflow === "video-i2v") {
               this.log.push("[Media] Starting Image-to-Video conversion...");
+                // === B1: Chain — use previous clip's last frame as start image ===
+                let chainStartImage = data.localPath; // default: use the AI-generated image
+                if ((media as any)._chainFrom) {
+                  const chainFromId = (media as any)._chainFrom;
+                  const prevMediaId = this.mediaIdMap.get(chainFromId) || chainFromId;
+                  const prevMedia = useEditorStore.getState().mediaItems.find(m => m.id === prevMediaId);
+                  if (prevMedia?.localPath && (prevMedia.localPath.endsWith('.mp4') || prevMedia.localPath.endsWith('.webm'))) {
+                    this.log.push("[B1-Chain] Extracting last frame from: " + prevMedia.localPath);
+                    try {
+                      const chainResp = await fetch("http://localhost:3456/api/extract-last-frame", {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ videoLocalPath: prevMedia.localPath }),
+                      });
+                      const chainData = await chainResp.json();
+                      if (chainData.success) {
+                        chainStartImage = chainData.localPath;
+                        this.log.push("[B1-Chain] Using last frame as start image: " + chainData.localPath);
+                      } else {
+                        this.log.push("[B1-Chain] Extract failed: " + (chainData.error || "unknown") + " — using AI image");
+                      }
+                    } catch (chainErr: any) {
+                      this.log.push("[B1-Chain] Extract error: " + chainErr.message + " — using AI image");
+                    }
+                  } else {
+                    this.log.push("[B1-Chain] Previous media not a video, using AI image");
+                  }
+                }
               try {
                 const i2vResp = await fetch("http://localhost:3456/api/comfyui/generate-video", {
                   method: "POST", headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
-                    imageLocalPath: data.localPath,
+                    imageLocalPath: chainStartImage,
                     positive: (media.aiPrompt || media.src.replace("ai://", "")) + ", gentle camera motion, cinematic, smooth animation",
                     width: 480, height: 832, length: 81, steps: 30
                   })

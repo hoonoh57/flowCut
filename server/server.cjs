@@ -1604,6 +1604,67 @@ app.post('/api/enhance-video', async (req, res) => {
   }
 });
 const PORT = 3456;
+
+// ═══════════════════════════════════════════════════
+// B1: Extract last frame from video for chain generation
+// ═══════════════════════════════════════════════════
+app.post('/api/extract-last-frame', async (req, res) => {
+  const { videoLocalPath, outputName } = req.body;
+  console.log('[CHAIN] Extract last frame from:', videoLocalPath);
+  if (!videoLocalPath || !fs.existsSync(videoLocalPath)) {
+    return res.json({ success: false, error: 'Video not found: ' + videoLocalPath });
+  }
+  const outName = outputName || ('lastframe_' + Date.now() + '.png');
+  const outPath = path.join(MEDIA_DIR, outName);
+  try {
+    // Get video duration first
+    const durResult = require('child_process').execSync(
+      '"E:/ffmpeg/bin/ffprobe.exe" -v error -show_entries format=duration -of csv=p=0 "' + videoLocalPath + '"',
+      { encoding: 'utf8', timeout: 10000 }
+    ).trim();
+    const duration = parseFloat(durResult) || 5;
+    const seekTo = Math.max(0, duration - 0.05);
+    // Extract last frame
+    const args = [
+      '-y', '-ss', String(seekTo), '-i', videoLocalPath,
+      '-vframes', '1', '-q:v', '2', outPath
+    ];
+    await new Promise((resolve, reject) => {
+      const proc = spawn(FFMPEG, args);
+      let stderr = '';
+      proc.stderr.on('data', d => { stderr += d.toString(); });
+      proc.on('close', code => {
+        if (code === 0 && fs.existsSync(outPath)) resolve(true);
+        else reject(new Error('FFmpeg exit ' + code + ': ' + stderr.slice(-200)));
+      });
+      proc.on('error', reject);
+    });
+    const stats = fs.statSync(outPath);
+    console.log('[CHAIN] Last frame extracted:', outPath, '(' + (stats.size / 1024).toFixed(1) + 'KB)');
+    // Also copy to ComfyUI input for i2v
+    const comfyInputDir = 'E:/WuxiaStudio/engine/ComfyUI/ComfyUI/input';
+    const comfyName = 'flowcut_chain_' + outName;
+    const comfyPath = path.join(comfyInputDir, comfyName);
+    try {
+      if (!fs.existsSync(comfyInputDir)) fs.mkdirSync(comfyInputDir, { recursive: true });
+      fs.copyFileSync(outPath, comfyPath);
+      console.log('[CHAIN] Copied to ComfyUI input:', comfyPath);
+    } catch (cpErr) { console.log('[CHAIN] ComfyUI copy failed:', cpErr.message); }
+    res.json({
+      success: true,
+      localPath: outPath,
+      servePath: '/media/' + outName,
+      serverUrl: 'http://localhost:' + PORT + '/media/' + outName,
+      comfyInputName: comfyName,
+      duration: duration,
+      sizeMB: (stats.size / 1048576).toFixed(2),
+    });
+  } catch (err) {
+    console.log('[CHAIN] Extract error:', err.message);
+    res.json({ success: false, error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log('');
   console.log('  FlowCut Export Server v3.1 (native fetch)');

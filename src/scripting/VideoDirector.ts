@@ -1,4 +1,4 @@
-import { DEFAULT_PROJECT } from '../types/project';
+﻿import { DEFAULT_PROJECT } from '../types/project';
 
 export interface Beat {
   id: string;
@@ -81,11 +81,15 @@ export function planToFlowScript(plan: DirectorPlan): any {
     const durFrame = Math.round((beat.endSec - beat.startSec) * fps);
     const mediaId = "m_" + beat.id;
 
+    // B1: Chain — link sequential beats so each scene continues from the previous
+    const beatIndex = beats.indexOf(beat);
+    const prevMediaId = beatIndex > 0 ? "m_" + beats[beatIndex - 1].id : undefined;
     media.push({
       id: mediaId, type: "image",
       src: "ai://" + (beat.scenePrompt || "scene"),
-      aiWorkflow: "image-to-video"
-    });
+      aiWorkflow: "image-to-video",
+      ...(prevMediaId ? { _chainFrom: prevMediaId } : {}),
+    } as any);
 
     clips.push({ id: "c_v_" + beat.id, trackId: "v1", mediaId, type: "video",
       startFrame, durationFrames: durFrame,
