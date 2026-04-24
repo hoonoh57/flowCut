@@ -478,7 +478,7 @@ app.post('/api/export', async (req, res) => {
       .filter(f => {
         if (!((f.type === 'audio' || f.type === 'video') && !f.muted && f.localPath && fs.existsSync(f.localPath))) return false;
         const ext = (f.localPath || '').toLowerCase();
-        if (ext.endsWith('.webm') || ext.endsWith('.webp') || ext.endsWith('.gif')) {
+        if (ext.endsWith('.mp4') || ext.endsWith('.webm') || ext.endsWith('.webp') || ext.endsWith('.gif') || ext.endsWith('.mov') || ext.endsWith('.avi') || ext.endsWith('.mkv')) {
           try {
             const probe = require('child_process').execSync('E:/ffmpeg/bin/ffprobe.exe -hide_banner -show_streams "' + f.localPath + '"', { encoding: 'utf8', timeout: 5000 });
             if (!probe.includes('codec_type=audio')) {
@@ -554,9 +554,13 @@ app.post('/api/export', async (req, res) => {
       let sf = '[' + idx + ':v]';
       if (rect.fullscreen) {
         sf += 'scale=' + Math.round(ow*1.1) + ':' + Math.round(oh*1.1) + ':flags=lanczos:force_original_aspect_ratio=decrease,pad=' + Math.round(ow*1.1) + ':' + Math.round(oh*1.1) + ':(ow-iw)/2:(oh-ih)/2:black';
-        // Ken Burns: subtle zoom out
-        const kbDur = (clip.durationFrames / fps).toFixed(3);
-        sf += ',zoompan=z=\'min(zoom+0.0005,1.1)\':x=\'iw/2-(iw/zoom/2)\':y=\'ih/2-(ih/zoom/2)\':d=' + Math.round(clip.durationFrames) + ':s=' + ow + 'x' + oh + ':fps=' + fps;
+        // Ken Burns: only for images, skip for video
+        if (clip.type === 'image') {
+          const kbDur = (clip.durationFrames / fps).toFixed(3);
+          sf += ',zoompan=z=\'min(zoom+0.0005,1.1)\':x=\'iw/2-(iw/zoom/2)\':y=\'ih/2-(ih/zoom/2)\':d=' + Math.round(clip.durationFrames) + ':s=' + ow + 'x' + oh + ':fps=' + fps;
+        } else {
+          sf += ',scale=' + ow + ':' + oh + ':flags=lanczos:force_original_aspect_ratio=decrease,pad=' + ow + ':' + oh + ':(ow-iw)/2:(oh-ih)/2:black';
+        }
       } else {
         sf += 'scale=' + rect.w + ':' + rect.h + ':flags=lanczos';
       }
@@ -782,6 +786,7 @@ app.post('/api/export', async (req, res) => {
       }
     }
 
+
     const complexFilter = filterParts.join(';');
     if (complexFilter) {
       const filterFile = path.join(TEMP_DIR, 'filter_' + Date.now() + '.txt');
@@ -794,24 +799,6 @@ app.post('/api/export', async (req, res) => {
       else args.push('-an');
     }
 
-        // --- SUBTITLE BURN-IN ---
-    const assFile = req.body.assPath;
-    const subFontDir = req.body.fontDir || path.join(MEDIA_DIR);
-    if (assFile && fs.existsSync(assFile)) {
-      // Add ASS subtitle filter to the last video stream
-      const assPathEscaped = assFile.replace(/\\/g, '/').replace(/:/g, '\\:');
-      const fontDirEscaped = subFontDir.replace(/\\/g, '/').replace(/:/g, '\\:');
-      const subFilter = "ass='" + assPathEscaped + "':fontsdir='" + fontDirEscaped + "'";
-      
-      // Insert subtitle filter into the filter chain
-      if (lastVideo) {
-        const subLabel = 'subtitled';
-        filterParts.push(lastVideo + subFilter + '[' + subLabel + ']');
-        lastVideo = '[' + subLabel + ']';
-        console.log('[EXPORT] Subtitle burn-in: ' + assFile);
-      }
-    }
-
     args.push('-t', totalDurSec);
 
     if (format === 'mp4') {
@@ -822,6 +809,24 @@ app.post('/api/export', async (req, res) => {
       if (audioLabel) args.push('-c:a', 'libopus', '-b:a', '128k');
     } else if (format === 'gif') {
       args.push('-an');
+    }
+
+    // --- SUBTITLE (2nd pass after main export) ---
+    let subtitlePass = null;
+    let assFile = req.body.assPath;
+    if (!assFile) {
+      const assFiles = fs.readdirSync(MEDIA_DIR).filter(f => f.endsWith('.ass')).sort().reverse();
+      if (assFiles.length > 0) assFile = path.join(MEDIA_DIR, assFiles[0]);
+    }
+    if (assFile && fs.existsSync(assFile)) {
+      const tempAss = path.join(TEMP_DIR, 'subtitle.ass');
+      fs.copyFileSync(assFile, tempAss);
+      const fontSrc = path.join(MEDIA_DIR, 'NotoSansKR-Bold.ttf');
+      if (fs.existsSync(fontSrc) && !fs.existsSync(path.join(TEMP_DIR, 'NotoSansKR-Bold.ttf'))) {
+        fs.copyFileSync(fontSrc, path.join(TEMP_DIR, 'NotoSansKR-Bold.ttf'));
+      }
+      subtitlePass = { assPath: tempAss, fontDir: TEMP_DIR };
+      console.log('[EXPORT] Subtitle will be burned in 2nd pass:', assFile);
     }
 
     args.push(outputPath);
@@ -854,6 +859,41 @@ app.post('/api/export', async (req, res) => {
       ffProcess.on('error', reject);
     });
 
+
+    // --- 2ND PASS: SUBTITLE BURN-IN ---
+    if (subtitlePass && subtitlePass.assPath && fs.existsSync(subtitlePass.assPath)) {
+      console.log('[EXPORT] 2nd pass: burning subtitles...');
+      const subInput = outputPath;
+      const subOutput = outputPath.replace('.mp4', '_sub.mp4');
+      const tempAssName = path.basename(subtitlePass.assPath);
+      const cwd = path.dirname(subtitlePass.assPath);
+      await new Promise((resolve, reject) => {
+        const subProc = spawn(FFMPEG, [
+          '-y', '-hide_banner',
+          '-i', subInput,
+          '-vf', 'ass=' + tempAssName + ':fontsdir=.',
+          '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+          '-c:a', 'copy',
+          '-movflags', '+faststart',
+          subOutput
+        ], { cwd: cwd });
+        let subErr = '';
+        subProc.stderr.on('data', d => subErr += d.toString());
+        subProc.on('close', code => {
+          if (code === 0 && fs.existsSync(subOutput)) {
+            fs.renameSync(subOutput, outputPath);
+            console.log('[EXPORT] Subtitles burned successfully');
+            resolve();
+          } else {
+            console.log('[EXPORT] Subtitle burn failed (code ' + code + '), keeping original');
+            console.log('[EXPORT] Subtitle stderr:', subErr.slice(-500));
+            if (fs.existsSync(subOutput)) fs.unlinkSync(subOutput);
+            resolve();
+          }
+        });
+        subProc.on('error', e => { console.log('[EXPORT] Subtitle process error:', e.message); resolve(); });
+      });
+    }
     const stats = fs.statSync(outputPath);
     const sizeMB = (stats.size / 1048576).toFixed(1);
     sendProgress({ status: 'complete', progress: 100, message: 'Complete! ' + sizeMB + 'MB', filePath: outputPath });
