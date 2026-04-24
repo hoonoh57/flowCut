@@ -173,90 +173,218 @@ app.get('/api/health', (req, res) => { res.json({ ok: true, ffmpeg: FFMPEG, outp
 
 
 // ========== SUBTITLE (ASS) GENERATION API ==========
-app.post('/api/subtitle/generate', async (req, res) => {
-  const { segments, projectWidth, projectHeight, fps, style } = req.body;
-  // segments: [{ text, startFrame, endFrame, words: [{word, startMs, endMs}] }]
-  console.log('[Subtitle] Generating ASS subtitle');
-  console.log('[Subtitle] Segments:', (segments || []).length, 'Resolution:', projectWidth + 'x' + projectHeight);
+app.post('/api/subtitle/generate', (req, res) => {
+  try {
+    const { segments, projectWidth = 1920, projectHeight = 1080, fps = 30, style = {} } = req.body;
+    if (!segments || segments.length === 0) return res.json({ success: false, error: 'No segments provided' });
 
-  if (!segments || segments.length === 0) {
-    return res.json({ success: false, error: 'No segments provided' });
-  }
+    console.log('[Subtitle] Generating ASS subtitle');
+    console.log('[Subtitle] Segments:', segments.length, 'Resolution:', projectWidth + 'x' + projectHeight);
+    console.log('[Subtitle] Style preset:', style.preset || 'karaoke');
 
-  const w = projectWidth || 1920;
-  const h = projectHeight || 1080;
-  const fontName = 'Noto Sans KR';
-  const fontSize = style?.fontSize || Math.round(h * 0.042); // ~45px at 1080p
-  const primaryColor = style?.primaryColor || '&H00FFFFFF'; // white
-  const highlightColor = style?.highlightColor || '&H0000DDFF'; // yellow-orange
-  const outlineColor = style?.outlineColor || '&H00000000'; // black
-  const bgColor = style?.bgColor || '&H80000000'; // semi-transparent black
-  const fontPath = path.join(MEDIA_DIR, 'NotoSansKR-Bold.ttf');
+    // === PRESET SYSTEM ===
+    const PRESETS = {
+      clean: {
+        fontName: 'Noto Sans KR', fontSize: 48, bold: -1, italic: 0,
+        primaryColor: '&H00FFFFFF', secondaryColor: '&H0000FFFF', outlineColor: '&H00000000', shadowColor: '&H80000000',
+        outline: 3, shadow: 1, alignment: 2, marginL: 40, marginR: 40, marginV: 60,
+        borderStyle: 1, karaoke: 'none', fadeIn: 200, fadeOut: 200, blur: 0,
+        wordAnimation: 'none', emphasisColor: '', emphasisScale: 100, backgroundBox: false,
+      },
+      karaoke: {
+        fontName: 'Noto Sans KR', fontSize: 48, bold: -1, italic: 0,
+        primaryColor: '&H0000D4FF', secondaryColor: '&H00FFFFFF', outlineColor: '&H00000000', shadowColor: '&H80000000',
+        outline: 3, shadow: 2, alignment: 2, marginL: 40, marginR: 40, marginV: 60,
+        borderStyle: 1, karaoke: 'sweep', fadeIn: 150, fadeOut: 150, blur: 0.5,
+        wordAnimation: 'none', emphasisColor: '', emphasisScale: 100, backgroundBox: false,
+      },
+      pill: {
+        fontName: 'Noto Sans KR', fontSize: 44, bold: -1, italic: 0,
+        primaryColor: '&H00FFFFFF', secondaryColor: '&H0000FFFF', outlineColor: '&H00000000', shadowColor: '&H00000000',
+        outline: 0, shadow: 0, alignment: 2, marginL: 40, marginR: 40, marginV: 60,
+        borderStyle: 3, karaoke: 'none', fadeIn: 200, fadeOut: 200, blur: 0,
+        wordAnimation: 'none', emphasisColor: '', emphasisScale: 100, backgroundBox: true,
+        boxColor: '&HA0000000',
+      },
+      pop: {
+        fontName: 'Noto Sans KR', fontSize: 52, bold: -1, italic: 0,
+        primaryColor: '&H00FFFFFF', secondaryColor: '&H0000FFFF', outlineColor: '&H00000000', shadowColor: '&H40000000',
+        outline: 4, shadow: 3, alignment: 5, marginL: 80, marginR: 80, marginV: 0,
+        borderStyle: 1, karaoke: 'fill', fadeIn: 0, fadeOut: 100, blur: 0.3,
+        wordAnimation: 'pop', emphasisColor: '&H0000D4FF', emphasisScale: 130, backgroundBox: false,
+      },
+      webtoon: {
+        fontName: 'Noto Sans KR', fontSize: 56, bold: -1, italic: 0,
+        primaryColor: '&H00FFFFFF', secondaryColor: '&H000055FF', outlineColor: '&H00000000', shadowColor: '&H60000000',
+        outline: 4, shadow: 4, alignment: 2, marginL: 60, marginR: 60, marginV: 80,
+        borderStyle: 1, karaoke: 'sweep', fadeIn: 0, fadeOut: 100, blur: 0.5,
+        wordAnimation: 'bounce', emphasisColor: '&H0000CCFF', emphasisScale: 140, backgroundBox: false,
+      },
+      typewriter: {
+        fontName: 'Noto Sans KR', fontSize: 42, bold: 0, italic: 0,
+        primaryColor: '&H0000FFFF', secondaryColor: '&H00FFFFFF', outlineColor: '&H00000000', shadowColor: '&H60000000',
+        outline: 2, shadow: 1, alignment: 2, marginL: 40, marginR: 40, marginV: 60,
+        borderStyle: 1, karaoke: 'fill', fadeIn: 0, fadeOut: 300, blur: 0,
+        wordAnimation: 'typewriter', emphasisColor: '', emphasisScale: 100, backgroundBox: false,
+      },
+      cinematic: {
+        fontName: 'Noto Sans KR', fontSize: 40, bold: 0, italic: 0,
+        primaryColor: '&H00FFFFFF', secondaryColor: '&H0000FFFF', outlineColor: '&H40000000', shadowColor: '&H80000000',
+        outline: 2, shadow: 2, alignment: 2, marginL: 120, marginR: 120, marginV: 50,
+        borderStyle: 1, karaoke: 'none', fadeIn: 500, fadeOut: 500, blur: 0.8,
+        wordAnimation: 'none', emphasisColor: '', emphasisScale: 100, backgroundBox: false,
+      },
+      impact: {
+        fontName: 'Noto Sans KR', fontSize: 64, bold: -1, italic: 0,
+        primaryColor: '&H00FFFFFF', secondaryColor: '&H000000FF', outlineColor: '&H00000000', shadowColor: '&H00000000',
+        outline: 5, shadow: 0, alignment: 5, marginL: 100, marginR: 100, marginV: 0,
+        borderStyle: 1, karaoke: 'fill', fadeIn: 0, fadeOut: 0, blur: 0,
+        wordAnimation: 'pop', emphasisColor: '&H0000CCFF', emphasisScale: 150, backgroundBox: false,
+      },
+    };
 
-  // ASS Header
-  let ass = '[Script Info]\n';
-  ass += 'Title: FlowCut Auto Subtitle\n';
-  ass += 'ScriptType: v4.00+\n';
-  ass += 'PlayResX: ' + w + '\n';
-  ass += 'PlayResY: ' + h + '\n';
-  ass += 'WrapStyle: 0\n';
-  ass += 'ScaledBorderAndShadow: yes\n\n';
+    const presetId = style.preset || 'karaoke';
+    const preset = PRESETS[presetId] || PRESETS.karaoke;
+    // Allow per-property overrides from style object
+    const s = { ...preset, ...style };
 
-  // Styles
-  ass += '[V4+ Styles]\n';
-  ass += 'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n';
-  // Main style: center-bottom with outline + shadow
-  ass += 'Style: Default,' + fontName + ',' + fontSize + ',' + primaryColor + ',' + highlightColor + ',' + outlineColor + ',' + bgColor + ',-1,0,0,0,100,100,1,0,1,3,1,2,30,30,60,1\n';
-  // Highlight style (for karaoke active word)
-  ass += 'Style: Highlight,' + fontName + ',' + Math.round(fontSize * 1.05) + ',' + highlightColor + ',' + primaryColor + ',' + outlineColor + ',' + bgColor + ',-1,0,0,0,100,100,1,0,1,3,1,2,30,30,60,1\n\n';
+    console.log('[Subtitle] Using preset:', presetId, '| Font:', s.fontName, s.fontSize, '| Karaoke:', s.karaoke);
 
-  // Events
-  ass += '[Events]\n';
-  ass += 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
+    // Scale font size relative to project height
+    const scaledFontSize = Math.round(s.fontSize * (projectHeight / 1080));
 
-  const fpsVal = fps || 30;
+    // === ASS HEADER ===
+    const formatASSTime = (totalSec) => {
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const sec = Math.floor(totalSec % 60);
+      const cs = Math.round((totalSec % 1) * 100);
+      return h + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0') + '.' + String(cs).padStart(2,'0');
+    };
 
-  for (const seg of segments) {
-    const startSec = (seg.startFrame || 0) / fpsVal;
-    const endSec = (seg.endFrame || seg.startFrame + 150) / fpsVal;
-    const startTime = formatASSTime(startSec);
-    const endTime = formatASSTime(endSec);
+    let ass = '[Script Info]\n';
+    ass += 'Title: FlowCut Subtitles\n';
+    ass += 'ScriptType: v4.00+\n';
+    ass += 'PlayResX: ' + projectWidth + '\n';
+    ass += 'PlayResY: ' + projectHeight + '\n';
+    ass += 'WrapStyle: 0\n';
+    ass += 'ScaledBorderAndShadow: yes\n\n';
 
-    if (seg.words && seg.words.length > 0) {
-      // Karaoke mode: word-by-word highlight using \k tags
-      let karaokeText = '';
-      for (let i = 0; i < seg.words.length; i++) {
-        const word = seg.words[i];
-        // \k duration is in centiseconds (1/100s)
-        const wordDurCs = Math.round(((word.endMs || 0) - (word.startMs || 0)) / 10);
-        const durCs = Math.max(1, wordDurCs);
-        // \kf = smooth fill, \k = instant fill
-        karaokeText += '{\\kf' + durCs + '}' + word.word;
-        if (i < seg.words.length - 1) karaokeText += ' ';
-      }
-      ass += 'Dialogue: 0,' + startTime + ',' + endTime + ',Default,,0,0,0,,' + karaokeText + '\n';
-    } else {
-      // Simple mode: full sentence with fade
-      const fadeText = '{\\fad(200,200)}' + seg.text;
-      ass += 'Dialogue: 0,' + startTime + ',' + endTime + ',Default,,0,0,0,,' + fadeText + '\n';
+    // === STYLES ===
+    ass += '[V4+ Styles]\n';
+    ass += 'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n';
+
+    // Default style
+    ass += 'Style: Default,' + s.fontName + ',' + scaledFontSize + ','
+      + s.primaryColor + ',' + s.secondaryColor + ',' + s.outlineColor + ',' + s.shadowColor + ','
+      + s.bold + ',' + s.italic + ',0,0,100,100,0,0,' + s.borderStyle + ',' + s.outline + ',' + s.shadow + ','
+      + s.alignment + ',' + s.marginL + ',' + s.marginR + ',' + s.marginV + ',1\n';
+
+    // Emphasis style (for pop/webtoon word emphasis)
+    if (s.emphasisColor && s.emphasisScale > 100) {
+      const emphFontSize = Math.round(scaledFontSize * s.emphasisScale / 100);
+      ass += 'Style: Emphasis,' + s.fontName + ',' + emphFontSize + ','
+        + s.emphasisColor + ',' + s.secondaryColor + ',' + s.outlineColor + ',' + s.shadowColor + ','
+        + s.bold + ',' + s.italic + ',0,0,100,100,0,0,' + s.borderStyle + ',' + (s.outline+1) + ',' + s.shadow + ','
+        + s.alignment + ',' + s.marginL + ',' + s.marginR + ',' + s.marginV + ',1\n';
     }
+
+    ass += '\n[Events]\n';
+    ass += 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
+
+    // === EVENTS ===
+    for (const seg of segments) {
+      const startSec = seg.startFrame / fps;
+      const endSec = seg.endFrame / fps;
+      const startTime = formatASSTime(startSec);
+      const endTime = formatASSTime(endSec);
+
+      // Build override tags
+      let overrideTags = '';
+      if (s.blur > 0) overrideTags += '\\blur' + s.blur;
+      if (s.fadeIn > 0 || s.fadeOut > 0) overrideTags += '\\fad(' + s.fadeIn + ',' + s.fadeOut + ')';
+
+      if (seg.words && seg.words.length > 0 && s.karaoke !== 'none') {
+        // === KARAOKE MODE ===
+        let karaokeText = overrideTags ? '{' + overrideTags + '}' : '';
+
+        for (let w = 0; w < seg.words.length; w++) {
+          const word = seg.words[w];
+          const durCs = Math.max(1, Math.round((word.duration || 0.5) * 100));
+          const karaokeTag = s.karaoke === 'sweep' ? '\\kf' : s.karaoke === 'outline' ? '\\ko' : '\\k';
+
+          // Per-word animation
+          let wordPrefix = '';
+          let wordSuffix = '';
+
+          if (s.wordAnimation === 'pop') {
+            // Pop: start small, grow to full size
+            wordPrefix = '\\t(' + Math.round(w * durCs * 10) + ',' + Math.round((w * durCs * 10) + 150) + ',\\fscx100\\fscy100)';
+            if (w === 0) karaokeText = '{\\fscx80\\fscy80' + overrideTags + '}';
+          } else if (s.wordAnimation === 'bounce') {
+            // Bounce: slight vertical movement via \move workaround using \t and \frz
+            wordPrefix = '\\t(' + Math.round(w * durCs * 10) + ',' + Math.round((w * durCs * 10) + 100) + ',\\fscx105\\fscy105)\\t(' + Math.round((w * durCs * 10) + 100) + ',' + Math.round((w * durCs * 10) + 200) + ',\\fscx100\\fscy100)';
+          }
+
+          // Check if word should be emphasized
+          const isEmphasis = style.emphasisWords && style.emphasisWords.some(ew =>
+            word.text.includes(ew) || ew.includes(word.text)
+          );
+
+          if (isEmphasis && s.emphasisColor) {
+            karaokeText += '{' + karaokeTag + durCs + '\\c' + s.emphasisColor + '\\fscx' + s.emphasisScale + '\\fscy' + s.emphasisScale + '}' + word.text;
+          } else {
+            karaokeText += '{' + karaokeTag + durCs + (wordPrefix ? wordPrefix : '') + '}' + word.text;
+          }
+        }
+
+        ass += 'Dialogue: 0,' + startTime + ',' + endTime + ',Default,,0,0,0,,' + karaokeText + '\n';
+
+      } else if (s.wordAnimation === 'typewriter' && seg.words && seg.words.length > 0) {
+        // === TYPEWRITER MODE ===
+        // Each character appears one by one using \k with very short duration per char
+        let twText = overrideTags ? '{' + overrideTags + '}' : '';
+        const fullText = seg.text || seg.words.map(w => w.text).join(' ');
+        const totalDur = endSec - startSec;
+        const perCharCs = Math.max(1, Math.round((totalDur / fullText.length) * 100));
+
+        for (const ch of fullText) {
+          twText += '{\\k' + perCharCs + '}' + ch;
+        }
+        ass += 'Dialogue: 0,' + startTime + ',' + endTime + ',Default,,0,0,0,,' + twText + '\n';
+
+      } else {
+        // === SIMPLE MODE ===
+        const text = seg.text || (seg.words ? seg.words.map(w => w.text).join(' ') : '');
+        const prefix = overrideTags ? '{' + overrideTags + '}' : '';
+        ass += 'Dialogue: 0,' + startTime + ',' + endTime + ',Default,,0,0,0,,' + prefix + text + '\n';
+      }
+    }
+
+    // Save ASS file
+    const assFileName = 'subtitle_' + Date.now() + '.ass';
+    const assPath = path.join(MEDIA_DIR, assFileName);
+    fs.writeFileSync(assPath, ass, 'utf8');
+    console.log('[Subtitle] ASS file saved:', assPath);
+    console.log('[Subtitle] Segments:', segments.length, '| Preset:', presetId, '| Font:', s.fontName, scaledFontSize);
+
+    const fontPath = path.join(MEDIA_DIR, 'NotoSansKR-Bold.ttf');
+
+    res.json({
+      success: true,
+      assPath: assPath,
+      assUrl: 'http://localhost:3456/media/' + assFileName,
+      fontPath: fs.existsSync(fontPath) ? fontPath : null,
+      segments: segments.length,
+      preset: presetId,
+      availablePresets: Object.keys(PRESETS),
+    });
+
+  } catch (err) {
+    console.log('[Subtitle] Error:', err.message);
+    res.json({ success: false, error: err.message });
   }
-
-  // Save ASS file
-  const assFileName = 'subtitle_' + Date.now() + '.ass';
-  const assPath = path.join(MEDIA_DIR, assFileName);
-  fs.writeFileSync(assPath, ass, 'utf8');
-  console.log('[Subtitle] ASS file saved:', assPath);
-  console.log('[Subtitle] Segments:', segments.length, 'Font:', fontName, fontSize + 'px');
-
-  res.json({
-    success: true,
-    assPath: assPath,
-    assUrl: 'http://localhost:3456/media/' + assFileName,
-    fontPath: fontPath,
-    segments: segments.length,
-  });
-});
+}));
 
 function formatASSTime(seconds) {
   const h = Math.floor(seconds / 3600);
