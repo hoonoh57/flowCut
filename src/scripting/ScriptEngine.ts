@@ -177,7 +177,7 @@ export class ScriptEngine {
     const elapsed = ((now - this._startTime) / 1000).toFixed(1);
     const stepTime = ((now - this._lastStepTime) / 1000).toFixed(1);
     const timeStr = new Date(now).toLocaleTimeString('ko-KR', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    this.logT(`[${timeStr}] (+${elapsed}s, step ${stepTime}s) ${msg}`);
+    this.log.push(`[${timeStr}] (+${elapsed}s, step ${stepTime}s) ${msg}`);
     console.log(`[${timeStr}] (+${elapsed}s, step ${stepTime}s) ${msg}`);
     this._lastStepTime = now;
   }
