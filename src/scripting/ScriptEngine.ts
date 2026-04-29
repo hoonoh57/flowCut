@@ -380,9 +380,8 @@ export class ScriptEngine {
             }
 
                         
-            // === A3: Auto TTS narration sync (narration-first principle) ===
-            // Rule: narration is NEVER trimmed. Video extends to match narration.
-            if ((media as any).narration) {
+            // === A3: TTS clip placement (TTS already generated in Phase 1) ===
+            if ((media as any).narration && (this as any)._ttsResults?.has(media.id)) {
               try {
                 const narrText = (media as any).narration;
                 const narrVoice = (media as any).narrationVoice || (media as any).narrationLang || "ko";
@@ -395,21 +394,12 @@ export class ScriptEngine {
                 const mediaIdx = ((this as any)._scriptData?.media || []).findIndex((m: any) => m.id === media.id);
                 const sceneStartFrame = myScriptClip ? myScriptClip.startFrame : (mediaIdx >= 0 ? mediaIdx * 150 : 0);
 
-                this.log.push("[A3-TTS] Generating narration for " + media.id + ": " + narrText.substring(0, 50));
+                const pregenTTS = (this as any)._ttsResults.get(media.id);
+                this.log.push("[A3-TTS] Using pre-generated TTS for " + media.id + ": " + narrText.substring(0, 50));
 
-                // 1. Generate TTS at NATURAL speed (never compress)
-                const ttsResp = await fetch("http://localhost:3456/api/tts/generate", {
-                  method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ text: narrText, language: narrVoice, voice: narrVoice }),
-                });
-                const ttsData = await ttsResp.json();
-                if (!ttsData.success) {
-                  this.errors.push("[A3-TTS] Failed: " + (ttsData.error || "unknown"));
-                  throw new Error("TTS failed");
-                }
-
-                const ttsDur = ttsData.duration || 5;
-                const ttsFrames = Math.ceil(ttsDur * fps);
+                const ttsData = { success: true, localPath: pregenTTS.localPath, serverUrl: pregenTTS.serverUrl, duration: pregenTTS.duration };
+                const ttsDur = pregenTTS.duration;
+                const ttsFrames = pregenTTS.frames;
                 const videoDurFrames = myScriptClip ? (myScriptClip.durationFrames || 150) : 150;
                 const videoDurSec = videoDurFrames / fps;
 
@@ -417,8 +407,8 @@ export class ScriptEngine {
                 this.log.push("[A3-TTS] Video:     " + videoDurFrames + "f (" + videoDurSec.toFixed(1) + "s)");
 
                 // 2. Compare narration vs video duration
-                if (ttsFrames > videoDurFrames) {
-                  // CASE 1: Narration longer than video -> EXTEND VIDEO
+                if (ttsFrames > videoDurFrames && !(this as any)._ttsResults?.has(media.id)) {
+                  // CASE 1: Narration longer than video -> EXTEND VIDEO (skipped in TTS-First mode)
                   const shortfallFrames = ttsFrames - videoDurFrames;
                   const shortfallSec = shortfallFrames / fps;
                   const targetDurSec = ttsDur + 0.5; // +0.5s padding
