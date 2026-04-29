@@ -1,3 +1,21 @@
+// === LOAD .env (no dotenv dependency) ===
+try {
+  const _envPath = require('path').join(__dirname, '..', '.env');
+  if (require('fs').existsSync(_envPath)) {
+    const _envLines = require('fs').readFileSync(_envPath, 'utf8').split('\n');
+    for (const line of _envLines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx > 0) {
+        const key = trimmed.substring(0, eqIdx).trim();
+        const val = trimmed.substring(eqIdx + 1).trim();
+        if (!process.env[key]) process.env[key] = val;
+      }
+    }
+    console.log('[ENV] Loaded .env file');
+  }
+} catch(e) { console.log('[ENV] .env load error:', e.message); }
 const express = require('express');
 const cors = require('cors');
 const { spawn, exec } = require('child_process');
