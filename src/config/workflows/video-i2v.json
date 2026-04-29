@@ -4,7 +4,7 @@
   "description": "Animate a reference image into 2-second video clip",
   "engine": "comfyui",
   "vramRequired": 6,
-  "estimatedTime": "90-180s",
+  "estimatedTime": "60-180s",
   "outputType": "video",
   "workflow": {
     "3": {
@@ -16,31 +16,55 @@
         "sampler_name": "uni_pc",
         "scheduler": "simple",
         "denoise": 1,
-        "model": ["48", 0],
-        "positive": ["6", 0],
-        "negative": ["7", 0],
-        "latent_image": ["55", 0]
+        "model": [
+          "48",
+          0
+        ],
+        "positive": [
+          "6",
+          0
+        ],
+        "negative": [
+          "7",
+          0
+        ],
+        "latent_image": [
+          "55",
+          0
+        ]
       }
     },
     "6": {
       "class_type": "CLIPTextEncode",
       "inputs": {
         "text": "{{positive}}",
-        "clip": ["38", 0]
+        "clip": [
+          "38",
+          0
+        ]
       }
     },
     "7": {
       "class_type": "CLIPTextEncode",
       "inputs": {
         "text": "blurry, overexposed, static, subtitle, worst quality, low quality, JPEG artifacts, ugly, deformed, still frame, text, watermark",
-        "clip": ["38", 0]
+        "clip": [
+          "38",
+          0
+        ]
       }
     },
     "8": {
       "class_type": "VAEDecode",
       "inputs": {
-        "samples": ["3", 0],
-        "vae": ["39", 0]
+        "samples": [
+          "3",
+          0
+        ],
+        "vae": [
+          "39",
+          0
+        ]
       }
     },
     "10": {
@@ -52,7 +76,10 @@
     "28": {
       "class_type": "VHS_VideoCombine",
       "inputs": {
-        "images": ["8", 0],
+        "images": [
+          "8",
+          0
+        ],
         "frame_rate": 16,
         "loop_count": 0,
         "filename_prefix": "flowcut_i2v",
@@ -86,14 +113,23 @@
       "class_type": "ModelSamplingSD3",
       "inputs": {
         "shift": 8,
-        "model": ["37", 0]
+        "model": [
+          "37",
+          0
+        ]
       }
     },
     "55": {
       "class_type": "Wan22ImageToVideoLatent",
       "inputs": {
-        "vae": ["39", 0],
-        "start_image": ["10", 0],
+        "vae": [
+          "39",
+          0
+        ],
+        "start_image": [
+          "10",
+          0
+        ],
         "width": 480,
         "height": 832,
         "length": 81,
