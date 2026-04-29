@@ -113,6 +113,78 @@ function getTrackZOrder(trackId, tracks) {
   return idx >= 0 ? idx : 0;
 }
 
+// === GEMINI API FALLBACK CONFIG ===
+const GEMINI_KEYS = [
+  process.env.GEMINI_KEY_1 || 'YOUR_GEMINI_KEY_1_HERE',
+  process.env.GEMINI_KEY_2 || 'YOUR_GEMINI_KEY_2_HERE',
+];
+let geminiKeyIndex = 0;
+const GEMINI_MODEL = 'gemini-2.0-flash';
+
+async function callGemini(prompt, systemPrompt) {
+  for (let attempt = 0; attempt < GEMINI_KEYS.length; attempt++) {
+    const key = GEMINI_KEYS[(geminiKeyIndex + attempt) % GEMINI_KEYS.length];
+    if (!key || key.startsWith('YOUR_')) continue;
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 1000 },
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (resp.status === 429 || resp.status === 403) {
+        console.log('[LLM] Gemini key ' + (geminiKeyIndex + attempt) + ' exhausted (HTTP ' + resp.status + '), trying next...');
+        continue;
+      }
+      const data = await resp.json();
+      if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
+        console.log('[LLM] Gemini OK (key ' + ((geminiKeyIndex + attempt) % GEMINI_KEYS.length) + ')');
+        geminiKeyIndex = (geminiKeyIndex + attempt) % GEMINI_KEYS.length;
+        return { success: true, text: data.candidates[0].content.parts[0].text, source: 'gemini' };
+      }
+      console.log('[LLM] Gemini returned no candidates:', JSON.stringify(data).substring(0, 200));
+    } catch (err) {
+      console.log('[LLM] Gemini key ' + ((geminiKeyIndex + attempt) % GEMINI_KEYS.length) + ' error:', err.message);
+    }
+  }
+  return { success: false, text: '', source: 'gemini' };
+}
+
+async function callOllamaCPU(prompt, systemPrompt, model) {
+  try {
+    console.log('[LLM] Falling back to Ollama CPU...');
+    const resp = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: model || 'gemma4:e4b', prompt, system: systemPrompt, stream: false, options: { temperature: 0.7, num_predict: 500, num_gpu: 0 } }),
+      signal: AbortSignal.timeout(60000),
+    });
+    const data = await resp.json();
+    console.log('[LLM] Ollama CPU OK');
+    return { success: true, text: data.response || '', source: 'ollama-cpu' };
+  } catch (err) {
+    console.log('[LLM] Ollama CPU failed:', err.message);
+    return { success: false, text: '', source: 'ollama-cpu' };
+  }
+}
+
+async function generateWithFallback(prompt, systemPrompt, model) {
+  // 1차: Gemini
+  let result = await callGemini(prompt, systemPrompt);
+  if (result.success) return result;
+  // 2차: Ollama CPU (num_gpu: 0 = GPU 사용 안 함)
+  result = await callOllamaCPU(prompt, systemPrompt, model);
+  if (result.success) return result;
+  // 실패
+  return { success: false, text: '', source: 'none' };
+}
+// === END GEMINI FALLBACK ===
+
 const app = express();
 app.use(cors());
 app.use((req, res, next) => {
@@ -1107,8 +1179,6 @@ app.get('/api/open-output', (req, res) => { exec('explorer "' + OUTPUT_DIR + '"'
 // =========================================================================
 app.post('/api/ai/generate-text', async (req, res) => {
   const { prompt, model, language } = req.body;
-  const ollamaUrl = 'http://localhost:11434';
-  const ollamaModel = model || 'gemma4:e4b';
   
   const systemPrompt = [
     'You are a video text/subtitle generation assistant.',
@@ -1123,33 +1193,44 @@ app.post('/api/ai/generate-text', async (req, res) => {
   ].join('\n');
 
   try {
-    const resp = await fetch(ollamaUrl + '/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: ollamaModel, prompt, system: systemPrompt, stream: false, options: { temperature: 0.7, num_predict: 500 } }),
-      });
-
-    const data = await resp.json();
-    const responseText = data.response || '';
+    const result = await generateWithFallback(prompt, systemPrompt, model || 'gemma4:e4b');
+    if (!result.success) return res.json({ success: false, error: 'All LLM providers failed' });
+    
+    console.log('[AI-Text] Source:', result.source);
+    const responseText = result.text;
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return res.json({ success: true, text: parsed.text, suggestedPreset: parsed.suggestedPreset || 'basic-white' });
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return res.json({ success: true, text: parsed.text, suggestedPreset: parsed.suggestedPreset || 'basic-white', source: result.source });
+      } catch(e) {}
     }
-    return res.json({ success: true, text: responseText.trim(), suggestedPreset: 'basic-white' });
+    return res.json({ success: true, text: responseText.trim(), suggestedPreset: 'basic-white', source: result.source });
   } catch (err) {
     return res.json({ success: false, error: err.message });
   }
 });
 
 app.get('/api/ai/health', async (req, res) => {
+  const health = { gemini: false, ollama: false, models: [], activeProvider: 'none' };
+  // Check Gemini
+  try {
+    const key = GEMINI_KEYS.find(k => k && !k.startsWith('YOUR_'));
+    if (key) {
+      const resp = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + key, { signal: AbortSignal.timeout(5000) });
+      health.gemini = resp.ok;
+      if (resp.ok) health.activeProvider = 'gemini';
+    }
+  } catch (err) { console.log('[Health] Gemini check failed:', err.message); }
+  // Check Ollama
   try {
     const resp = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) });
     const data = await resp.json();
-    res.json({ ollama: resp.ok, models: data.models?.map(m => m.name) || [] });
-  } catch (err) {
-    res.json({ ollama: false, error: err.message });
-  }
+    health.ollama = resp.ok;
+    health.models = data.models?.map(m => m.name) || [];
+    if (!health.gemini && health.ollama) health.activeProvider = 'ollama-cpu';
+  } catch (err) { /* Ollama not running */ }
+  res.json(health);
 });
 
 
