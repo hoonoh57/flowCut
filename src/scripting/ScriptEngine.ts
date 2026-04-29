@@ -274,7 +274,7 @@ export class ScriptEngine {
           });
           const data = await resp.json();
           if (data.success) {
-            useEditorStore.getState().addMediaItem({ id: media.id, name: media.name || "AI Generated", type: media.type || "image", url: data.serverUrl && data.serverUrl.startsWith("http") ? data.serverUrl : "http://localhost:3456/media/" + (data.localPath || data.serverUrl || "").split(/[\\/]/).pop(), localPath: data.localPath || data.serverUrl, duration: media.duration || 5, width: 1024, height: 1024, size: 0 });
+            useEditorStore.getState().addMediaItem({ id: media.id, name: media.name || ("AI: " + (media.aiPrompt || media.src || "").replace("ai://", "").substring(0, 40)), type: media.type || "image", url: data.serverUrl && data.serverUrl.startsWith("http") ? data.serverUrl : "http://localhost:3456/media/" + (data.localPath || data.serverUrl || "").split(/[\\/]/).pop(), localPath: data.localPath || data.serverUrl, duration: media.duration || 5, width: 1024, height: 1024, size: 0 });
             this.mediaIdMap.set(media.id, media.id);
             if ((media as any).mediaId && (media as any).mediaId !== media.id) this.mediaIdMap.set((media as any).mediaId, media.id);
             
@@ -330,7 +330,7 @@ export class ScriptEngine {
                 if (i2vData.success) {
                   useEditorStore.getState().addMediaItem({
                     id: media.id + "_video",
-                    name: (media.name || "AI Video") + " (video)",
+                    name: (media.name || ("AI: " + (media.aiPrompt || media.src || "").replace("ai://", "").substring(0, 30))) + " [video]",
                     type: "video",
                     url: i2vData.serverUrl,
                     localPath: i2vData.localPath,
@@ -353,7 +353,7 @@ export class ScriptEngine {
                       // Replace i2v media with enhanced version
                       useEditorStore.getState().addMediaItem({
                         id: media.id + "_enhanced",
-                        name: (media.name || "AI Video") + " (enhanced)",
+                        name: (media.name || ("AI: " + (media.aiPrompt || media.src || "").replace("ai://", "").substring(0, 30))) + " [HD]",
                         type: "video",
                         url: enhData.serverUrl,
                         localPath: enhData.localPath,
@@ -449,7 +449,7 @@ export class ScriptEngine {
                         const extendedId = videoMediaId + "_ext";
                         store.addMediaItem({
                           id: extendedId,
-                          name: (videoMedia.name || "Video") + " (extended)",
+                          name: (videoMedia.name || "Video") + " [ext]",
                           type: "video",
                           url: extData.serverUrl,
                           localPath: extData.localPath,
@@ -489,7 +489,7 @@ export class ScriptEngine {
 
                 // 3. Register TTS media
                 useEditorStore.getState().addMediaItem({
-                  id: narrOutId, name: "Narration: " + narrText.substring(0, 30),
+                  id: narrOutId, name: "Narration: " + narrText.substring(0, 50),
                   type: "audio", url: ttsData.serverUrl, localPath: ttsData.localPath,
                   duration: ttsDur, size: 0,
                 });
@@ -510,7 +510,7 @@ export class ScriptEngine {
 
                 // 5. Place narration clip at scene startFrame
                 const ttsClip = createDefaultClip({
-                  id: uid(), name: "TTS: " + narrText.substring(0, 20),
+                  id: uid(), name: "TTS: " + narrText.substring(0, 50), text: narrText,
                   type: "audio" as any, trackId: narrTrackId,
                   startFrame: sceneStartFrame, durationFrames: ttsFrames,
                   mediaId: narrOutId,

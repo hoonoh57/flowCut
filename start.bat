@@ -18,13 +18,17 @@ set /p mode="  Enter mode [1/2/3]: "
 cd /d E:\2026\flowCut
 
 echo.
-echo  [1/5] Cleaning up old processes...
-taskkill /f /fi "WINDOWTITLE eq FlowCut-*" >nul 2>&1
+echo  [1/5] Cleaning up old FlowCut processes...
+taskkill /f /fi "WINDOWTITLE eq FlowCut-Server*" >nul 2>&1
+taskkill /f /fi "WINDOWTITLE eq FlowCut-Vite*" >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":3456.*LISTENING"') do taskkill /f /pid %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":5173.*LISTENING"') do taskkill /f /pid %%a >nul 2>&1
 timeout /t 1 /nobreak >nul
 echo        Done.
 
 echo  [2/5] Checking environment...
-where node >nul 2>&1 || (echo        [FAIL] Node.js not found! & pause & exit /b 1)
+where node >nul 2>&1
+if !errorlevel! neq 0 (echo        [FAIL] Node.js not found! & pause & exit /b 1)
 echo        Node.js OK
 if not exist "E:\ffmpeg\bin\ffmpeg.exe" (echo        [FAIL] FFmpeg missing! & pause & exit /b 1)
 echo        FFmpeg OK
@@ -35,35 +39,48 @@ if not exist "temp" mkdir temp
 
 echo  [3/5] AI services...
 if "!mode!"=="1" goto skip_all_ai
-if not "!mode!"=="2" goto skip_ollama
+
+if "!mode!"=="3" goto check_comfy
 
 echo        Checking Ollama...
-tasklist /fi "IMAGENAME eq ollama.exe" 2>nul | findstr /i "ollama" >nul 2>&1
-if !errorlevel! equ 0 goto ollama_ok
+netstat -ano 2>nul | findstr ":11434.*LISTENING" >nul 2>&1
+if !errorlevel! equ 0 goto ollama_running
 echo        Starting Ollama...
 start "FlowCut-Ollama" /min cmd /k "title FlowCut-Ollama && color 0E && ollama serve"
 timeout /t 3 /nobreak >nul
 echo        Ollama started.
 goto check_comfy
-:ollama_ok
-echo        Ollama already running.
+:ollama_running
+echo        Ollama already running (port 11434).
 
-:skip_ollama
 :check_comfy
 echo        Checking ComfyUI...
 netstat -ano 2>nul | findstr ":8188.*LISTENING" >nul 2>&1
-if !errorlevel! equ 0 goto comfy_ok
-if not exist "E:\WuxiaStudio\engine\ComfyUI\run_nvidia_gpu.bat" goto comfy_missing
-echo        Starting ComfyUI via run_nvidia_gpu.bat...
+if !errorlevel! equ 0 goto comfy_running
+if not exist "E:\WuxiaStudio\engine\ComfyUI\run_nvidia_gpu.bat" goto comfy_not_found
+echo        Starting ComfyUI (run_nvidia_gpu.bat)...
 start "FlowCut-ComfyUI" /min cmd /k "title FlowCut-ComfyUI && color 06 && cd /d E:\WuxiaStudio\engine\ComfyUI && run_nvidia_gpu.bat"
-echo        ComfyUI starting... (30-60s to load models)
-timeout /t 10 /nobreak >nul
+echo        Waiting for ComfyUI to load models...
+set comfy_wait=0
+:comfy_wait_loop
+timeout /t 5 /nobreak >nul
+set /a comfy_wait+=5
+netstat -ano 2>nul | findstr ":8188.*LISTENING" >nul 2>&1
+if !errorlevel! equ 0 goto comfy_ready
+if !comfy_wait! geq 120 goto comfy_timeout
+echo        Still loading... (!comfy_wait!s)
+goto comfy_wait_loop
+:comfy_ready
+echo        ComfyUI ready! (took !comfy_wait!s)
 goto start_flowcut
-:comfy_ok
-echo        ComfyUI already running on port 8188.
+:comfy_timeout
+echo        [WARN] ComfyUI not responding after 120s. Check GPU/VRAM.
 goto start_flowcut
-:comfy_missing
-echo        [WARN] ComfyUI run_nvidia_gpu.bat not found
+:comfy_running
+echo        ComfyUI already running (port 8188).
+goto start_flowcut
+:comfy_not_found
+echo        [WARN] run_nvidia_gpu.bat not found at E:\WuxiaStudio\engine\ComfyUI
 goto start_flowcut
 
 :skip_all_ai
@@ -91,7 +108,10 @@ if "!mode!"=="3" echo    Mode: AI GENERATE
 echo  ------------------------------------------
 echo    Backend:   http://localhost:3456
 echo    Frontend:  http://localhost:5173
+if not "!mode!"=="1" echo    ComfyUI:   http://localhost:8188
+if "!mode!"=="2" echo    Ollama:    http://localhost:11434
 echo  ==========================================
 echo.
-echo  Press any key to close this launcher.
+echo  Press any key to close this launcher window.
+echo  (Services will keep running in background)
 pause >nul
