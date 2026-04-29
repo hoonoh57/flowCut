@@ -214,6 +214,22 @@ export class ScriptEngine {
           const subData = await subResp.json();
           if (subData.success) {
             (this as any)._assPath = subData.assPath;
+            // === Save to Zustand store for preview subtitle overlay ===
+            try {
+              const store = useEditorStore.getState();
+              if (store.setSubtitleSegments) {
+                store.setSubtitleSegments(subtitleSegments.map((seg: any) => ({
+                  text: seg.text,
+                  startFrame: seg.startFrame,
+                  endFrame: seg.endFrame,
+                })));
+                store.setSubtitleVisible(true);
+                if (store.subtitlePreset === 'none') store.setSubtitlePreset('clean');
+                this.log.push('[Subtitle] Saved ' + subtitleSegments.length + ' segments to preview store');
+              }
+            } catch (storeErr: any) {
+              this.log.push('[Subtitle] Store save skipped: ' + storeErr.message);
+            }
             (this as any)._fontDir = subData.fontPath ? subData.fontPath.replace(/[^/\\]*$/, "") : "";
             this.log.push("[Subtitle] ASS generated: " + subData.assPath + " (" + subData.segments + " segments)");
           } else {
