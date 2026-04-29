@@ -169,34 +169,48 @@ function normalizeScript(script: any): any {
 
 export class ScriptEngine {
   private log: string[] = [];
+  private _startTime: number = Date.now();
+  private _lastStepTime: number = Date.now();
+
+  private logT(msg: string): void {
+    const now = Date.now();
+    const elapsed = ((now - this._startTime) / 1000).toFixed(1);
+    const stepTime = ((now - this._lastStepTime) / 1000).toFixed(1);
+    const timeStr = new Date(now).toLocaleTimeString('ko-KR', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    this.logT(`[${timeStr}] (+${elapsed}s, step ${stepTime}s) ${msg}`);
+    console.log(`[${timeStr}] (+${elapsed}s, step ${stepTime}s) ${msg}`);
+    this._lastStepTime = now;
+  }
   private errors: string[] = [];
   private clipIdMap: Map<string, string> = new Map();
   private mediaIdMap: Map<string, string> = new Map();
 
   async execute(script: FlowScript): Promise<ScriptResult> {
     const start = Date.now();
+    this._startTime = start;
+    this._lastStepTime = start;
     this.log = []; this.errors = []; this.clipIdMap = new Map();
     script = normalizeScript(script) as FlowScript;
-    this.log.push("[Normalize] Script expanded: " + (script.media?.length || 0) + " media, " + (script.clips?.length || 0) + " clips");
-    this.log.push("[ScriptEngine] Starting FlowScript v" + script.version);
+    this.logT("[Normalize] Script expanded: " + (script.media?.length || 0) + " media, " + (script.clips?.length || 0) + " clips");
+    this.logT("[ScriptEngine] Starting FlowScript v" + script.version);
     try {
-      this.log.push("[DEBUG] script keys: " + Object.keys(script).join(", "));
+      this.logT("[DEBUG] script keys: " + Object.keys(script).join(", "));
       (this as any)._scriptData = script; // Store script data for TTS startFrame calculation
       (this as any)._subtitleSegments = []; // Collect subtitle segments from TTS
-      this.log.push("[DEBUG] media: " + (script.media ? "array(" + (Array.isArray(script.media) ? script.media.length : typeof script.media) + ")" : "undefined"));
-      this.log.push("[DEBUG] tracks: " + (script.tracks ? "array(" + (Array.isArray(script.tracks) ? script.tracks.length : typeof script.tracks) + ")" : "undefined"));
-      this.log.push("[DEBUG] clips: " + (script.clips ? "array(" + (Array.isArray(script.clips) ? script.clips.length : typeof script.clips) + ")" : "undefined"));
-      this.log.push("[DEBUG] actions: " + (script.actions ? "array(" + (Array.isArray(script.actions) ? script.actions.length : typeof script.actions) + ")" : "undefined"));
-      try { this.setupProject(script); this.log.push("[DEBUG] setupProject OK"); } catch(e: any) { this.errors.push("[setupProject] " + e.message); return { success: false, log: this.log, errors: this.errors, clipIds: [], duration: Date.now() - start }; }
-      try { if (script.media && Array.isArray(script.media)) { this.log.push("[DEBUG] importing " + script.media.length + " media..."); await this.importMedia(script.media); this.log.push("[DEBUG] importMedia OK"); } } catch(e: any) { this.errors.push("[importMedia] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
-      try { if (script.tracks && Array.isArray(script.tracks)) { this.log.push("[DEBUG] creating " + script.tracks.length + " tracks..."); this.createTracks(script.tracks); this.log.push("[DEBUG] createTracks OK"); } } catch(e: any) { this.errors.push("[createTracks] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
-      try { this.log.push("[DEBUG] creating " + (script.clips ? script.clips.length : 0) + " clips..."); this.createClips(script.clips || []); this.log.push("[DEBUG] createClips OK");
+      this.logT("[DEBUG] media: " + (script.media ? "array(" + (Array.isArray(script.media) ? script.media.length : typeof script.media) + ")" : "undefined"));
+      this.logT("[DEBUG] tracks: " + (script.tracks ? "array(" + (Array.isArray(script.tracks) ? script.tracks.length : typeof script.tracks) + ")" : "undefined"));
+      this.logT("[DEBUG] clips: " + (script.clips ? "array(" + (Array.isArray(script.clips) ? script.clips.length : typeof script.clips) + ")" : "undefined"));
+      this.logT("[DEBUG] actions: " + (script.actions ? "array(" + (Array.isArray(script.actions) ? script.actions.length : typeof script.actions) + ")" : "undefined"));
+      try { this.setupProject(script); this.logT("[DEBUG] setupProject OK"); } catch(e: any) { this.errors.push("[setupProject] " + e.message); return { success: false, log: this.log, errors: this.errors, clipIds: [], duration: Date.now() - start }; }
+      try { if (script.media && Array.isArray(script.media)) { this.logT("[DEBUG] importing " + script.media.length + " media..."); await this.importMedia(script.media); this.logT("[DEBUG] importMedia OK"); } } catch(e: any) { this.errors.push("[importMedia] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
+      try { if (script.tracks && Array.isArray(script.tracks)) { this.logT("[DEBUG] creating " + script.tracks.length + " tracks..."); this.createTracks(script.tracks); this.logT("[DEBUG] createTracks OK"); } } catch(e: any) { this.errors.push("[createTracks] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
+      try { this.logT("[DEBUG] creating " + (script.clips ? script.clips.length : 0) + " clips..."); this.createClips(script.clips || []); this.logT("[DEBUG] createClips OK");
       // I2V: clips with _video mediaId should be video type
       const _clips = useEditorStore.getState().clips;
       const _fixed = _clips.map(c => c.mediaId && c.mediaId.endsWith("_video") ? { ...c, type: "video" } : c);
       useEditorStore.getState().setClips(_fixed);
-      this.log.push("[DEBUG] i2v clips reclassified to video"); } catch(e: any) { this.errors.push("[createClips] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
-      try { if (script.actions && Array.isArray(script.actions)) { this.log.push("[DEBUG] executing " + script.actions.length + " actions..."); await this.executeActions(script.actions); this.log.push("[DEBUG] executeActions OK");
+      this.logT("[DEBUG] i2v clips reclassified to video"); } catch(e: any) { this.errors.push("[createClips] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
+      try { if (script.actions && Array.isArray(script.actions)) { this.logT("[DEBUG] executing " + script.actions.length + " actions..."); await this.executeActions(script.actions); this.logT("[DEBUG] executeActions OK");
 
       // === Auto Subtitle Generation ===
       const subtitleSegments = (this as any)._subtitleSegments || [];
@@ -225,13 +239,13 @@ export class ScriptEngine {
                 })));
                 store.setSubtitleVisible(true);
                 if (store.subtitlePreset === 'none') store.setSubtitlePreset('clean');
-                this.log.push('[Subtitle] Saved ' + subtitleSegments.length + ' segments to preview store');
+                this.logT('[Subtitle] Saved ' + subtitleSegments.length + ' segments to preview store');
               }
             } catch (storeErr: any) {
-              this.log.push('[Subtitle] Store save skipped: ' + storeErr.message);
+              this.logT('[Subtitle] Store save skipped: ' + storeErr.message);
             }
             (this as any)._fontDir = subData.fontPath ? subData.fontPath.replace(/[^/\\]*$/, "") : "";
-            this.log.push("[Subtitle] ASS generated: " + subData.assPath + " (" + subData.segments + " segments)");
+            this.logT("[Subtitle] ASS generated: " + subData.assPath + " (" + subData.segments + " segments)");
           } else {
             this.errors.push("[Subtitle] Failed: " + (subData.error || "unknown"));
           }
@@ -239,7 +253,7 @@ export class ScriptEngine {
           this.errors.push("[Subtitle] Error: " + subErr.message);
         }
       } } } catch(e: any) { this.errors.push("[executeActions] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
-      this.log.push("[ScriptEngine] Complete (" + (Date.now() - start) + "ms)");
+      this.logT("[ScriptEngine] Complete (" + (Date.now() - start) + "ms)");
     } catch (err: any) { this.errors.push("[ScriptEngine] Fatal: " + err.message); }
     return { success: this.errors.length === 0, log: this.log, errors: this.errors, clipIds: Array.from(this.clipIdMap.values()).length > 0 ? Array.from(this.clipIdMap.values()) : useEditorStore.getState().clips.map(c => c.id), duration: Date.now() - start };
   }
@@ -247,17 +261,17 @@ export class ScriptEngine {
   private setupProject(script: FlowScript) {
     const store = useEditorStore.getState();
     const project = script.project;
-    this.log.push("[DEBUG] project: " + JSON.stringify(project));
+    this.logT("[DEBUG] project: " + JSON.stringify(project));
     const validPresets = ["16:9", "9:16", "1:1", "4:5", "21:9"];
     if (project.aspectPreset && validPresets.includes(project.aspectPreset)) {
-      this.log.push("[DEBUG] setAspectPreset: " + project.aspectPreset);
+      this.logT("[DEBUG] setAspectPreset: " + project.aspectPreset);
       store.setAspectPreset(project.aspectPreset as any);
     } else {
-      this.log.push("[DEBUG] setProjectSize: " + project.width + "x" + project.height);
+      this.logT("[DEBUG] setProjectSize: " + project.width + "x" + project.height);
       store.setProjectSize(project.width || DEFAULT_PROJECT.width, project.height || DEFAULT_PROJECT.height);
     }
     if (project.fps) store.setFps(project.fps);
-    this.log.push("[Project] " + (project.width || DEFAULT_PROJECT.width) + "x" + (project.height || DEFAULT_PROJECT.height) + " @ " + (project.fps || DEFAULT_PROJECT.fps) + "fps");
+    this.logT("[Project] " + (project.width || DEFAULT_PROJECT.width) + "x" + (project.height || DEFAULT_PROJECT.height) + " @ " + (project.fps || DEFAULT_PROJECT.fps) + "fps");
   }
 
   private async importMedia(mediaList: FlowScriptMedia[]) {
@@ -266,11 +280,11 @@ export class ScriptEngine {
       if (!media.id && (media as any).mediaId) media.id = (media as any).mediaId;
       if (!media.id) media.id = "m_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
       if (media.src.startsWith("ai://")) {
-        this.log.push("[Media] AI generation: " + media.id);
+        this.logT("[Media] AI generation: " + media.id);
         try {
           const resp = await fetch("http://localhost:3456/api/comfyui/generate", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ workflowId: (media.aiWorkflow === "image-to-video" || media.aiWorkflow === "video-i2v") ? "background-scene" : (media.aiWorkflow || "background-scene"), positive: (() => { const p = media.aiPrompt || media.src.replace("ai://", ""); this.log.push("[Media] ComfyUI positive: " + p.substring(0, 120)); return p; })(), width: 1024, height: 1024, seed: (media as any)._seeds ? Object.values((media as any)._seeds)[0] as number : undefined, characterRefs: (media as any)._characterRefs || [] }),
+            body: JSON.stringify({ workflowId: (media.aiWorkflow === "image-to-video" || media.aiWorkflow === "video-i2v") ? "background-scene" : (media.aiWorkflow || "background-scene"), positive: (() => { const p = media.aiPrompt || media.src.replace("ai://", ""); this.logT("[Media] ComfyUI positive: " + p.substring(0, 120)); return p; })(), width: 1024, height: 1024, seed: (media as any)._seeds ? Object.values((media as any)._seeds)[0] as number : undefined, characterRefs: (media as any)._characterRefs || [] }),
           });
           const data = await resp.json();
           if (data.success) {
@@ -280,7 +294,7 @@ export class ScriptEngine {
             
             // Phase 3.3: Image-to-Video conversion
             if (media.aiWorkflow === "image-to-video" || media.aiWorkflow === "video-i2v") {
-              this.log.push("[Media] Starting Image-to-Video conversion...");
+              this.logT("[Media] Starting Image-to-Video conversion...");
                 // === B1: Chain — use previous clip's last frame as start image ===
                 let chainStartImage = data.localPath; // default: use the AI-generated image
                 if ((media as any)._chainFrom) {
@@ -288,7 +302,7 @@ export class ScriptEngine {
                   const prevMediaId = this.mediaIdMap.get(chainFromId) || chainFromId;
                   const prevMedia = useEditorStore.getState().mediaItems.find(m => m.id === prevMediaId);
                   if (prevMedia?.localPath && (prevMedia.localPath.endsWith('.mp4') || prevMedia.localPath.endsWith('.webm'))) {
-                    this.log.push("[B1-Chain] Extracting last frame from: " + prevMedia.localPath);
+                    this.logT("[B1-Chain] Extracting last frame from: " + prevMedia.localPath);
                     try {
                       const chainResp = await fetch("http://localhost:3456/api/extract-last-frame", {
                         method: "POST", headers: { "Content-Type": "application/json" },
@@ -297,15 +311,15 @@ export class ScriptEngine {
                       const chainData = await chainResp.json();
                       if (chainData.success) {
                         chainStartImage = chainData.localPath;
-                        this.log.push("[B1-Chain] Using last frame as start image: " + chainData.localPath);
+                        this.logT("[B1-Chain] Using last frame as start image: " + chainData.localPath);
                       } else {
-                        this.log.push("[B1-Chain] Extract failed: " + (chainData.error || "unknown") + " — using AI image");
+                        this.logT("[B1-Chain] Extract failed: " + (chainData.error || "unknown") + " — using AI image");
                       }
                     } catch (chainErr: any) {
-                      this.log.push("[B1-Chain] Extract error: " + chainErr.message + " — using AI image");
+                      this.logT("[B1-Chain] Extract error: " + chainErr.message + " — using AI image");
                     }
                   } else {
-                    this.log.push("[B1-Chain] Previous media not a video, using AI image");
+                    this.logT("[B1-Chain] Previous media not a video, using AI image");
                   }
                 }
               try {
@@ -316,7 +330,7 @@ export class ScriptEngine {
                   ? "seamless continuation of the previous scene, " + basePrompt.substring(0, 120) + ", smooth camera motion, consistent lighting, cinematic, same color palette, continuous movement"
                   : basePrompt + ", gentle camera motion, cinematic, smooth animation";
                 if (isChaining) {
-                  this.log.push("[B1-Chain] Continuation prompt: " + i2vPrompt.substring(0, 100));
+                  this.logT("[B1-Chain] Continuation prompt: " + i2vPrompt.substring(0, 100));
                 }
                 const i2vResp = await fetch("http://localhost:3456/api/comfyui/generate-video", {
                   method: "POST", headers: { "Content-Type": "application/json" },
@@ -363,19 +377,19 @@ export class ScriptEngine {
                         size: 0,
                       });
                       this.mediaIdMap.set(media.id, media.id + "_enhanced");
-                      this.log.push("[A2] Enhanced: " + enhData.localPath + " (30fps, " + (enhData.upscaleScale || 2) + "x, " + (enhData.sizeMB || "?") + "MB)");
+                      this.logT("[A2] Enhanced: " + enhData.localPath + " (30fps, " + (enhData.upscaleScale || 2) + "x, " + (enhData.sizeMB || "?") + "MB)");
                     } else {
-                      this.log.push("[A2] Enhance failed: " + (enhData.error || "unknown") + " — using original i2v");
+                      this.logT("[A2] Enhance failed: " + (enhData.error || "unknown") + " — using original i2v");
                     }
                   } catch (enhErr: any) {
-                    this.log.push("[A2] Enhance error: " + enhErr.message + " — using original i2v");
+                    this.logT("[A2] Enhance error: " + enhErr.message + " — using original i2v");
                   }
-                  this.log.push("[Media] I2V complete: " + i2vData.localPath);
+                  this.logT("[Media] I2V complete: " + i2vData.localPath);
                 } else {
-                  this.log.push("[Media] I2V failed: " + (i2vData.error || "unknown") + " - using image fallback");
+                  this.logT("[Media] I2V failed: " + (i2vData.error || "unknown") + " - using image fallback");
                 }
               } catch (i2vErr: any) {
-                this.log.push("[Media] I2V error: " + i2vErr.message + " - using image fallback");
+                this.logT("[Media] I2V error: " + i2vErr.message + " - using image fallback");
               }
             }
 
@@ -395,7 +409,7 @@ export class ScriptEngine {
                 const sceneStartFrame = myScriptClip ? myScriptClip.startFrame : (mediaIdx >= 0 ? mediaIdx * 150 : 0);
 
                 const pregenTTS = (this as any)._ttsResults.get(media.id);
-                this.log.push("[A3-TTS] Using pre-generated TTS for " + media.id + ": " + narrText.substring(0, 50));
+                this.logT("[A3-TTS] Using pre-generated TTS for " + media.id + ": " + narrText.substring(0, 50));
 
                 const ttsData = { success: true, localPath: pregenTTS.localPath, serverUrl: pregenTTS.serverUrl, duration: pregenTTS.duration };
                 const ttsDur = pregenTTS.duration;
@@ -403,8 +417,8 @@ export class ScriptEngine {
                 const videoDurFrames = myScriptClip ? (myScriptClip.durationFrames || 150) : 150;
                 const videoDurSec = videoDurFrames / fps;
 
-                this.log.push("[A3-TTS] Narration: " + ttsFrames + "f (" + ttsDur.toFixed(1) + "s)");
-                this.log.push("[A3-TTS] Video:     " + videoDurFrames + "f (" + videoDurSec.toFixed(1) + "s)");
+                this.logT("[A3-TTS] Narration: " + ttsFrames + "f (" + ttsDur.toFixed(1) + "s)");
+                this.logT("[A3-TTS] Video:     " + videoDurFrames + "f (" + videoDurSec.toFixed(1) + "s)");
 
                 // 2. Compare narration vs video duration
                 if (ttsFrames > videoDurFrames && !(this as any)._ttsResults?.has(media.id)) {
@@ -414,8 +428,8 @@ export class ScriptEngine {
                   const targetDurSec = ttsDur + 0.5; // +0.5s padding
                   const targetDurFrames = Math.ceil(targetDurSec * fps);
 
-                  this.log.push("[A3-TTS] Video too short by " + shortfallFrames + "f (" + shortfallSec.toFixed(1) + "s)");
-                  this.log.push("[A3-TTS] Extending video to match narration...");
+                  this.logT("[A3-TTS] Video too short by " + shortfallFrames + "f (" + shortfallSec.toFixed(1) + "s)");
+                  this.logT("[A3-TTS] Extending video to match narration...");
 
                   // Find the video media file (enhanced or original)
                   const videoMediaId = this.mediaIdMap.get(media.id) || media.id;
@@ -447,34 +461,34 @@ export class ScriptEngine {
                           size: 0,
                         });
                         this.mediaIdMap.set(media.id, extendedId);
-                        this.log.push("[VideoExtend] " + extData.strategy + ": " + extData.originalDuration?.toFixed(1) + "s -> " + extData.newDuration?.toFixed(1) + "s (" + extData.sizeMB + "MB)");
+                        this.logT("[VideoExtend] " + extData.strategy + ": " + extData.originalDuration?.toFixed(1) + "s -> " + extData.newDuration?.toFixed(1) + "s (" + extData.sizeMB + "MB)");
 
                         // Update script clip duration
                         if (myScriptClip) {
                           myScriptClip.durationFrames = targetDurFrames;
                         }
                       } else {
-                        this.log.push("[VideoExtend] Failed: " + (extData.error || "unknown") + " - using original");
+                        this.logT("[VideoExtend] Failed: " + (extData.error || "unknown") + " - using original");
                       }
                     } catch (extErr: any) {
-                      this.log.push("[VideoExtend] Error: " + extErr.message + " - using original");
+                      this.logT("[VideoExtend] Error: " + extErr.message + " - using original");
                     }
                   } else {
                     // No video file (image fallback) - just extend the clip duration
                     if (myScriptClip) {
                       myScriptClip.durationFrames = targetDurFrames;
-                      this.log.push("[A3-TTS] Image fallback: extended clip to " + targetDurFrames + "f");
+                      this.logT("[A3-TTS] Image fallback: extended clip to " + targetDurFrames + "f");
                     }
                   }
 
                 } else if (ttsFrames < videoDurFrames) {
                   // CASE 2: Video longer than narration -> KEEP AS IS
                   const surplus = videoDurFrames - ttsFrames;
-                  this.log.push("[A3-TTS] Video has " + surplus + "f (" + (surplus / fps).toFixed(1) + "s) surplus - keeping original");
+                  this.logT("[A3-TTS] Video has " + surplus + "f (" + (surplus / fps).toFixed(1) + "s) surplus - keeping original");
 
                 } else {
                   // CASE 3: Perfect match
-                  this.log.push("[A3-TTS] Perfect duration match!");
+                  this.logT("[A3-TTS] Perfect duration match!");
                 }
 
                 // 3. Register TTS media
@@ -495,7 +509,7 @@ export class ScriptEngine {
                     order: 200, height: 60, color: "#f97316",
                     locked: false, visible: true, muted: false, solo: false,
                   }));
-                  this.log.push("[A3-TTS] Created narration track");
+                  this.logT("[A3-TTS] Created narration track");
                 }
 
                 // 5. Place narration clip at scene startFrame
@@ -506,7 +520,7 @@ export class ScriptEngine {
                   mediaId: narrOutId,
                 });
                 useEditorStore.getState().dispatch(new AddClipCommand(ttsClip, false));
-                this.log.push("[A3-TTS] Placed narration @ frame " + sceneStartFrame + " (" + ttsDur.toFixed(1) + "s)");
+                this.logT("[A3-TTS] Placed narration @ frame " + sceneStartFrame + " (" + ttsDur.toFixed(1) + "s)");
 
                 // Collect subtitle segment for ASS generation
                 const endFrame = sceneStartFrame + ttsFrames;
@@ -524,7 +538,7 @@ export class ScriptEngine {
                   endFrame: endFrame,
                   words: subtitleWords,
                 });
-                this.log.push("[Subtitle] Segment added: frame " + sceneStartFrame + "-" + endFrame + " (" + words.length + " words)");
+                this.logT("[Subtitle] Segment added: frame " + sceneStartFrame + "-" + endFrame + " (" + words.length + " words)");
 
                 // 6. Shift subsequent clips if video was extended
                 const finalDurFrames = myScriptClip ? myScriptClip.durationFrames : videoDurFrames;
@@ -533,7 +547,7 @@ export class ScriptEngine {
                   for (const sc of scriptClips) {
                     if (sc.startFrame > sceneStartFrame) {
                       sc.startFrame += shift;
-                      this.log.push("[A3-TTS] Shifted clip " + (sc.mediaId || "?") + " to frame " + sc.startFrame);
+                      this.logT("[A3-TTS] Shifted clip " + (sc.mediaId || "?") + " to frame " + sc.startFrame);
                     }
                   }
                 }
@@ -550,12 +564,12 @@ export class ScriptEngine {
                   const existing = regMod.getCharacter(charKey);
                   if (existing && !existing.sheets.front) {
                     regMod.updateCharacterSheets(charKey, { front: data.localPath });
-                    this.log.push("[A1] Auto-saved face ref for " + charKey + ": " + data.localPath);
+                    this.logT("[A1] Auto-saved face ref for " + charKey + ": " + data.localPath);
                   }
                 }
-              } catch (regErr: any) { this.log.push("[A1] Registry update skipped: " + (regErr.message || regErr)); }
+              } catch (regErr: any) { this.logT("[A1] Registry update skipped: " + (regErr.message || regErr)); }
             }
-            this.log.push("[Media] AI generated: " + data.localPath + " | url: " + (data.serverUrl && data.serverUrl.startsWith("http") ? data.serverUrl : "http://localhost:3456/media/" + (data.localPath || "").split(/[\\/]/).pop()));
+            this.logT("[Media] AI generated: " + data.localPath + " | url: " + (data.serverUrl && data.serverUrl.startsWith("http") ? data.serverUrl : "http://localhost:3456/media/" + (data.localPath || "").split(/[\\/]/).pop()));
           } else { this.errors.push("[Media] AI failed: " + (data.error || "unknown")); }
         } catch (err: any) { this.errors.push("[Media] AI error: " + err.message); }
       } else {
@@ -563,7 +577,7 @@ export class ScriptEngine {
         if (!store.mediaItems.find(m => m.id === media.id)) {
           store.addMediaItem({ id: media.id, name: media.name || "Media", type: media.type, url: media.src.startsWith("http") ? media.src : "http://localhost:3456/media/" + media.src, localPath: media.src, duration: media.duration || 5, size: 0 });
         }
-        this.log.push("[Media] Imported: " + media.id);
+        this.logT("[Media] Imported: " + media.id);
       }
     }
   }
@@ -576,7 +590,7 @@ export class ScriptEngine {
       if (existingIds.has(t.id)) continue;
       const track: Track = { id: t.id, name: t.name || (t.type === "video" ? "비디오" : t.type === "audio" ? "오디오" : "텍스트") + " " + t.id, type: t.type, order: t.type === "video" ? 500 : t.type === "text" ? 600 : 100, height: t.height || (t.type === "video" ? 80 : t.type === "audio" ? 60 : 40), color: t.type === "video" ? "#3b82f6" : t.type === "audio" ? "#22c55e" : "#f59e0b", locked: t.locked || false, visible: t.visible !== false, muted: t.muted || false, solo: t.solo || false };
       store.dispatch(new AddTrackCommand(track));
-      this.log.push("[Track] Created: " + t.id + " (" + t.type + ")");
+      this.logT("[Track] Created: " + t.id + " (" + t.type + ")");
     }
   }
 
@@ -603,7 +617,7 @@ export class ScriptEngine {
         locked: false, visible: true, muted: false, solo: false
       };
       useEditorStore.getState().dispatch(new AddTrackCommand(track));
-      this.log.push("[Track] Auto-created: " + tid + " (" + trackType + ") for orphan clips");
+      this.logT("[Track] Auto-created: " + tid + " (" + trackType + ") for orphan clips");
       existingTrackIds.add(tid);
     }
     const store = useEditorStore.getState();
@@ -619,7 +633,7 @@ export class ScriptEngine {
       }
       let src = "", localPath = "", mediaId = sc.mediaId || "";
       // Try to resolve mediaId from the mediaIdMap (handles AI script mediaId mismatch)
-      if (mediaId) { const mapped = this.mediaIdMap.get(mediaId); if (mapped && mapped !== mediaId) { this.log.push("[Clip] mediaId mapped: " + mediaId + " -> " + mapped); mediaId = mapped; } }
+      if (mediaId) { const mapped = this.mediaIdMap.get(mediaId); if (mapped && mapped !== mediaId) { this.logT("[Clip] mediaId mapped: " + mediaId + " -> " + mapped); mediaId = mapped; } }
       // If still not found, try matching by index (first media for first clip, etc.)
       if (mediaId && !useEditorStore.getState().mediaItems.find(m => m.id === mediaId)) {
         const allMedia = useEditorStore.getState().mediaItems;
@@ -632,7 +646,7 @@ export class ScriptEngine {
           for (const c of useEditorStore.getState().clips) { if (c.mediaId) usedMediaIds.add(c.mediaId); }
           const unused = candidates.filter(m => !usedMediaIds.has(m.id));
           mediaId = (unused.length > 0 ? unused[0] : candidates[0]).id;
-          this.log.push("[Clip] mediaId resolved by type match: " + mediaId);
+          this.logT("[Clip] mediaId resolved by type match: " + mediaId);
           }
         }
       }
@@ -646,7 +660,7 @@ export class ScriptEngine {
           const usedCount = Array.from(this.clipIdMap.values()).length;
           const idx = Math.min(usedCount, candidates.length - 1);
           mediaId = candidates[idx].id;
-          this.log.push("[Clip] mediaId auto-assigned: " + mediaId);
+          this.logT("[Clip] mediaId auto-assigned: " + mediaId);
         }
       }
       if (mediaId) {
@@ -674,12 +688,12 @@ export class ScriptEngine {
           if (Math.abs(clip.startFrame - prevEnd) <= overlapFrames * 2) {
             clip.startFrame = Math.max(0, prevEnd - overlapFrames);
             (clip as any).transitionIn = { type: 'dissolve', duration: overlapFrames };
-            this.log.push("[Transition] Auto dissolve " + overlapFrames + "f between prev clip and " + actualId);
+            this.logT("[Transition] Auto dissolve " + overlapFrames + "f between prev clip and " + actualId);
           }
         }
       }
       store.dispatch(new AddClipCommand(clip, ripple));
-      this.log.push("[Clip] " + actualId + " @ frame " + sc.startFrame + " (" + sc.type + ") src=" + (src || "none").substring(0, 60));
+      this.logT("[Clip] " + actualId + " @ frame " + sc.startFrame + " (" + sc.type + ") src=" + (src || "none").substring(0, 60));
     }
   }
 
@@ -690,53 +704,53 @@ export class ScriptEngine {
         case "split": {
           const cid = this.resolveClipId(act.clipId);
           useEditorStore.getState().dispatch(new SplitClipCommand(cid, act.frame));
-          this.log.push("[Action] Split " + cid + " at frame " + act.frame); break;
+          this.logT("[Action] Split " + cid + " at frame " + act.frame); break;
         }
         case "splitAll": {
           const clips = useEditorStore.getState().clips.filter(c => c.startFrame < act.frame && c.startFrame + c.durationFrames > act.frame);
           for (const c of clips) useEditorStore.getState().dispatch(new SplitClipCommand(c.id, act.frame));
-          this.log.push("[Action] SplitAll at frame " + act.frame); break;
+          this.logT("[Action] SplitAll at frame " + act.frame); break;
         }
         case "delete": {
           for (const id of act.clipIds) useEditorStore.getState().dispatch(new DeleteClipCommand(this.resolveClipId(id), false));
-          this.log.push("[Action] Delete " + act.clipIds.length + " clips"); break;
+          this.logT("[Action] Delete " + act.clipIds.length + " clips"); break;
         }
         case "rippleDelete": {
           for (const id of act.clipIds) useEditorStore.getState().dispatch(new DeleteClipCommand(this.resolveClipId(id), true));
-          this.log.push("[Action] RippleDelete " + act.clipIds.length + " clips"); break;
+          this.logT("[Action] RippleDelete " + act.clipIds.length + " clips"); break;
         }
         case "group": {
           const gid = uid();
           const resolved = act.clipIds.map(id => this.resolveClipId(id));
           const clips = useEditorStore.getState().clips.map(c => resolved.includes(c.id) ? { ...c, groupId: gid } : c);
           useEditorStore.setState({ clips });
-          this.log.push("[Action] Group " + act.clipIds.length + " clips"); break;
+          this.logT("[Action] Group " + act.clipIds.length + " clips"); break;
         }
         case "setVolume": {
           const cid = this.resolveClipId(act.clipId);
           const clips = useEditorStore.getState().clips.map(c => c.id === cid ? { ...c, volume: act.volume } : c);
           useEditorStore.setState({ clips });
-          this.log.push("[Action] SetVolume " + cid + " -> " + act.volume); break;
+          this.logT("[Action] SetVolume " + cid + " -> " + act.volume); break;
         }
         case "setSpeed": {
           const cid2 = this.resolveClipId(act.clipId);
           const clips2 = useEditorStore.getState().clips.map(c => c.id === cid2 ? { ...c, speed: act.speed } : c);
           useEditorStore.setState({ clips: clips2 });
-          this.log.push("[Action] SetSpeed " + cid2 + " -> " + act.speed); break;
+          this.logT("[Action] SetSpeed " + cid2 + " -> " + act.speed); break;
         }
         case "move": {
           const cid3 = this.resolveClipId(act.clipId);
           const clips3 = useEditorStore.getState().clips.map(c => c.id === cid3 ? { ...c, trackId: act.toTrack, startFrame: act.toFrame } : c);
           useEditorStore.setState({ clips: clips3 });
-          this.log.push("[Action] Move " + cid3); break;
+          this.logT("[Action] Move " + cid3); break;
         }
         case "export": {
-          this.log.push("[Action] Export " + act.format + " (delegating to /api/export)");
+          this.logT("[Action] Export " + act.format + " (delegating to /api/export)");
           try {
             const s = useEditorStore.getState();
             const resp = await fetch("http://localhost:3456/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inputFiles: s.clips.map(c => ({ clipId: c.id, type: c.type, localPath: c.localPath, startFrame: c.startFrame, durationFrames: c.durationFrames, trackId: c.trackId, volume: c.volume, muted: c.muted, speed: c.speed, opacity: c.opacity, x: c.x, y: c.y, clipWidth: c.width, clipHeight: c.height, text: c.text, fontFamily: c.fontFamily, fontSize: c.fontSize, fontColor: c.fontColor, fontWeight: c.fontWeight, textAlign: c.textAlign, fadeIn: c.fadeIn, fadeOut: c.fadeOut, volumeEnvelope: c.volumeEnvelope, name: c.name, sourceStart: c.sourceStart, sourceDuration: c.sourceDuration })), projectWidth: s.projectWidth, projectHeight: s.projectHeight, fps: s.fps, tracks: s.tracks, format: act.format || "mp4", quality: act.quality || "medium", fileName: act.fileName || "flowscript_export" }) });
             const data = await resp.json();
-            if (data.success) this.log.push("[Action] Export complete: " + data.filePath);
+            if (data.success) this.logT("[Action] Export complete: " + data.filePath);
             else this.errors.push("[Action] Export failed: " + data.error);
           } catch (err: any) { this.errors.push("[Action] Export error: " + err.message); }
           break;
@@ -759,7 +773,7 @@ export class ScriptEngine {
                   duration: ttsData.duration || 5, size: 0,
                 });
                 this.mediaIdMap.set(ttsOutId, ttsOutId);
-                this.log.push("[Action] generateTTS -> " + ttsOutId + " (" + ttsData.duration + "s)");
+                this.logT("[Action] generateTTS -> " + ttsOutId + " (" + ttsData.duration + "s)");
               } else { this.errors.push("[Action] TTS failed: " + (ttsData.error || "unknown")); }
             } catch (err: any) { this.errors.push("[Action] TTS error: " + err.message); }
           }
@@ -790,7 +804,7 @@ export class ScriptEngine {
                 duration: bgmData.duration || bgmDur, size: 0,
               });
               this.mediaIdMap.set(bgmOutId, bgmOutId);
-              this.log.push("[Action] generateBGM -> " + bgmOutId + " (" + (bgmData.preset || bgmMood) + ", " + bgmData.duration + "s, " + (bgmData.sizeMB || "?") + "MB)");
+              this.logT("[Action] generateBGM -> " + bgmOutId + " (" + (bgmData.preset || bgmMood) + ", " + bgmData.duration + "s, " + (bgmData.sizeMB || "?") + "MB)");
 
               // Auto-place BGM clip on a BGM track
               const store = useEditorStore.getState();
@@ -807,7 +821,7 @@ export class ScriptEngine {
                   id: bgmTrackId, name: "BGM", type: "audio",
                   order: 300, height: 40, color: "#4a9eff",
                 } as any));
-                this.log.push("[B3-BGM] Created BGM track");
+                this.logT("[B3-BGM] Created BGM track");
               }
 
               // Place BGM clip at frame 0 spanning full duration
@@ -818,7 +832,7 @@ export class ScriptEngine {
                 mediaId: bgmOutId, volume: bgmVol,
               });
               store.dispatch(new AddClipCommand(bgmClip, false));
-              this.log.push("[B3-BGM] Placed BGM clip @ frame 0 (" + (bgmData.duration || bgmDur) + "s, vol=" + bgmVol + "%)");
+              this.logT("[B3-BGM] Placed BGM clip @ frame 0 (" + (bgmData.duration || bgmDur) + "s, vol=" + bgmVol + "%)");
             } else {
               this.errors.push("[Action] BGM failed: " + (bgmData.error || "unknown"));
             }
@@ -846,7 +860,7 @@ export class ScriptEngine {
                   duration: 5, size: 0,
                 });
                 this.mediaIdMap.set(upOutId, upOutId);
-                this.log.push("[Action] upscale " + upMediaId + " -> " + upOutId + " (" + upScale + "x)");
+                this.logT("[Action] upscale " + upMediaId + " -> " + upOutId + " (" + upScale + "x)");
               } else { this.errors.push("[Action] Upscale failed: " + (upData.error || "unknown")); }
             } catch (err: any) { this.errors.push("[Action] Upscale error: " + err.message); }
           } else { this.errors.push("[Action] Upscale: media not found: " + upMediaId); }
@@ -857,22 +871,22 @@ export class ScriptEngine {
           const trB = (act as any).clipIdB ? this.resolveClipId((act as any).clipIdB) : "";
           const trType = (act as any).type || "dissolve";
           const trDur = (act as any).duration || 15;
-          this.log.push("[Action] transition " + trType + " (" + trDur + " frames) between " + trA + " <-> " + trB);
+          this.logT("[Action] transition " + trType + " (" + trDur + " frames) between " + trA + " <-> " + trB);
           break;
         }
         case "save": {
-          this.log.push("[Action] save placeholder");
+          this.logT("[Action] save placeholder");
           break;
         }
         case "undo": case "redo": {
-          this.log.push("[Action] " + ((act as any).action) + " placeholder");
+          this.logT("[Action] " + ((act as any).action) + " placeholder");
           break;
         }
 
-        case "upload": { this.log.push("[Action] Upload to " + act.platform + " (placeholder)"); break; }
-        case "autoSubtitle": { this.log.push("[Action] Auto subtitle (" + (act.language || "auto") + ")"); break; }
-        case "wait": { await new Promise(r => setTimeout(r, act.seconds * 1000)); this.log.push("[Action] Wait " + act.seconds + "s"); break; }
-        case "log": { this.log.push("[User] " + act.message); break; }        case "addClip": {
+        case "upload": { this.logT("[Action] Upload to " + act.platform + " (placeholder)"); break; }
+        case "autoSubtitle": { this.logT("[Action] Auto subtitle (" + (act.language || "auto") + ")"); break; }
+        case "wait": { await new Promise(r => setTimeout(r, act.seconds * 1000)); this.logT("[Action] Wait " + act.seconds + "s"); break; }
+        case "log": { this.logT("[User] " + act.message); break; }        case "addClip": {
           const newClipId = uid();
           const aStore = useEditorStore.getState();
           const addType = (act as any).clipType || (act as any).type || "video";
@@ -892,7 +906,7 @@ export class ScriptEngine {
                 locked: false, visible: true, muted: false, solo: false,
               };
               useEditorStore.getState().dispatch(new AddTrackCommand(autoTrack));
-              this.log.push("[Action] addClip: auto-created track " + addTrackId + " (" + autoTrackType + ")");
+              this.logT("[Action] addClip: auto-created track " + addTrackId + " (" + autoTrackType + ")");
             }
           }
           const addClip = createDefaultClip({
@@ -911,7 +925,7 @@ export class ScriptEngine {
           });
           aStore.dispatch(new AddClipCommand(addClip, aStore.rippleMode));
           if ((act as any).clipId) this.clipIdMap.set((act as any).clipId, newClipId);
-          this.log.push("[Action] addClip " + newClipId + " (" + addType + ") @ frame " + addClip.startFrame);
+          this.logT("[Action] addClip " + newClipId + " (" + addType + ") @ frame " + addClip.startFrame);
           break;
         }
         case "setClipProperty": {
@@ -923,7 +937,7 @@ export class ScriptEngine {
               c.id === spCid ? { ...c, [spProp]: spVal } : c
             );
             useEditorStore.setState({ clips: spClips });
-            this.log.push("[Action] setClipProperty " + spCid + "." + spProp + " = " + JSON.stringify(spVal));
+            this.logT("[Action] setClipProperty " + spCid + "." + spProp + " = " + JSON.stringify(spVal));
           }
           break;
         }
@@ -940,14 +954,14 @@ export class ScriptEngine {
             locked: false, visible: true, muted: false, solo: false,
           };
           useEditorStore.getState().dispatch(new AddTrackCommand(newTrack));
-          this.log.push("[Action] addTrack " + atId + " (" + atType + ")");
+          this.logT("[Action] addTrack " + atId + " (" + atType + ")");
           break;
         }
         case "removeTrack": {
           const rtId = (act as any).trackId || (act as any).id;
           if (rtId) {
             useEditorStore.getState().removeTrack(rtId);
-            this.log.push("[Action] removeTrack " + rtId);
+            this.logT("[Action] removeTrack " + rtId);
           }
           break;
         }
@@ -958,7 +972,7 @@ export class ScriptEngine {
           }
           if ((act as any).fps) spStore.setFps((act as any).fps);
           if ((act as any).aspectPreset) spStore.setAspectPreset((act as any).aspectPreset);
-          this.log.push("[Action] setProject " + ((act as any).width || "") + "x" + ((act as any).height || "") + " fps=" + ((act as any).fps || ""));
+          this.logT("[Action] setProject " + ((act as any).width || "") + "x" + ((act as any).height || "") + " fps=" + ((act as any).fps || ""));
           break;
         }
         case "trim": {
@@ -975,7 +989,7 @@ export class ScriptEngine {
               updated = { ...trClip, durationFrames: Math.max(1, trClip.durationFrames + frames) };
             }
             useEditorStore.setState({ clips: trClips.map(c => c.id === trCid ? updated : c) });
-            this.log.push("[Action] trim " + trCid + " edge=" + edge + " frames=" + frames);
+            this.logT("[Action] trim " + trCid + " edge=" + edge + " frames=" + frames);
           }
           break;
         }
@@ -990,7 +1004,7 @@ export class ScriptEngine {
               const newId = uid();
               const dup = { ...orig, id: newId, startFrame: orig.startFrame + orig.durationFrames + dupOffset };
               useEditorStore.getState().dispatch(new AddClipCommand(dup, false));
-              this.log.push("[Action] duplicate " + resolved + " -> " + newId);
+              this.logT("[Action] duplicate " + resolved + " -> " + newId);
             }
           }
           break;
@@ -999,7 +1013,7 @@ export class ScriptEngine {
           const a = (act as any);
           // Handle common AI-generated non-standard actions
           if (a.action === "add_text" || a.action === "addText") {
-            this.log.push("[Action] add_text -> creating text clip");
+            this.logT("[Action] add_text -> creating text clip");
             if (a.text || a.params?.text) {
               const textClip = createDefaultClip({
                 id: uid(), name: a.text || a.params?.text || "Text",
@@ -1012,10 +1026,10 @@ export class ScriptEngine {
                 fontColor: a.textStyle?.fontColor || a.params?.fontColor || "#ffffff",
               });
               useEditorStore.getState().dispatch(new AddClipCommand(textClip, false));
-              this.log.push("[Action] Text clip created: " + (a.text || a.params?.text));
+              this.logT("[Action] Text clip created: " + (a.text || a.params?.text));
             }
           } else if (a.action === "add_audio" || a.action === "addAudio") {
-            this.log.push("[Action] add_audio -> creating audio clip");
+            this.logT("[Action] add_audio -> creating audio clip");
             if (a.mediaId || a.params?.mediaId) {
               const audioClip = createDefaultClip({
                 id: uid(), name: "Audio", type: "audio" as any,
@@ -1026,10 +1040,10 @@ export class ScriptEngine {
                 volume: a.volume || a.params?.volume || 100,
               });
               useEditorStore.getState().dispatch(new AddClipCommand(audioClip, false));
-              this.log.push("[Action] Audio clip created");
-            } else { this.log.push("[Action] add_audio skipped (no mediaId)"); }
+              this.logT("[Action] Audio clip created");
+            } else { this.logT("[Action] add_audio skipped (no mediaId)"); }
           } else {
-            this.log.push("[Action] Unknown: " + a.action + " (params: " + JSON.stringify(a).substring(0, 100) + ")");
+            this.logT("[Action] Unknown: " + a.action + " (params: " + JSON.stringify(a).substring(0, 100) + ")");
           }
           break;
         }
