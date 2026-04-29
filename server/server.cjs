@@ -1459,6 +1459,9 @@ app.post('/api/comfyui/generate-video', async (req, res) => {
       if (node.class_type === 'KSampler') {
         node.inputs.seed = Math.floor(Math.random() * 1e15);
         if (steps) node.inputs.steps = steps;
+        node.inputs.cfg = 1.0;
+        node.inputs.sampler_name = 'uni_pc';
+        node.inputs.scheduler = 'simple';
       }
     }
   }
