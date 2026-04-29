@@ -169,12 +169,25 @@ function normalizeScript(script: any): any {
 
 export class ScriptEngine {
   private log: string[] = [];
+  private _t0: number = 0;
+  private _tPrev: number = 0;
+  /** 실시간 타임스탬프 로그 - 핵심 단계에서만 사용 */
+  private logStep(msg: string): void {
+    const now = Date.now();
+    const total = ((now - this._t0) / 1000).toFixed(1);
+    const step = ((now - this._tPrev) / 1000).toFixed(1);
+    const ts = new Date(now).toLocaleTimeString('ko-KR');
+    const line = `[${ts}] (+${total}s | step ${step}s) ${msg}`;
+    this.log.push(line);
+    console.log(line);
+    this._tPrev = now;
+  }
   private errors: string[] = [];
   private clipIdMap: Map<string, string> = new Map();
   private mediaIdMap: Map<string, string> = new Map();
 
   async execute(script: FlowScript): Promise<ScriptResult> {
-    const start = Date.now();
+    const start = Date.now(); this._t0 = start; this._tPrev = start;
     this.log = []; this.errors = []; this.clipIdMap = new Map();
     script = normalizeScript(script) as FlowScript;
     this.log.push("[Normalize] Script expanded: " + (script.media?.length || 0) + " media, " + (script.clips?.length || 0) + " clips");
@@ -188,15 +201,15 @@ export class ScriptEngine {
       this.log.push("[DEBUG] clips: " + (script.clips ? "array(" + (Array.isArray(script.clips) ? script.clips.length : typeof script.clips) + ")" : "undefined"));
       this.log.push("[DEBUG] actions: " + (script.actions ? "array(" + (Array.isArray(script.actions) ? script.actions.length : typeof script.actions) + ")" : "undefined"));
       try { this.setupProject(script); this.log.push("[DEBUG] setupProject OK"); } catch(e: any) { this.errors.push("[setupProject] " + e.message); return { success: false, log: this.log, errors: this.errors, clipIds: [], duration: Date.now() - start }; }
-      try { if (script.media && Array.isArray(script.media)) { this.log.push("[DEBUG] importing " + script.media.length + " media..."); await this.importMedia(script.media); this.log.push("[DEBUG] importMedia OK"); } } catch(e: any) { this.errors.push("[importMedia] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
-      try { if (script.tracks && Array.isArray(script.tracks)) { this.log.push("[DEBUG] creating " + script.tracks.length + " tracks..."); this.createTracks(script.tracks); this.log.push("[DEBUG] createTracks OK"); } } catch(e: any) { this.errors.push("[createTracks] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
-      try { this.log.push("[DEBUG] creating " + (script.clips ? script.clips.length : 0) + " clips..."); this.createClips(script.clips || []); this.log.push("[DEBUG] createClips OK");
+      try { if (script.media && Array.isArray(script.media)) { this.log.push("[DEBUG] importing " + script.media.length + " media..."); this.logStep("[STEP] importMedia START (" + script.media.length + " media)"); await this.importMedia(script.media); this.logStep("[STEP] importMedia DONE"); this.log.push("[DEBUG] importMedia OK"); } } catch(e: any) { this.errors.push("[importMedia] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
+      try { if (script.tracks && Array.isArray(script.tracks)) { this.log.push("[DEBUG] creating " + script.tracks.length + " tracks..."); this.logStep("[STEP] createTracks START"); this.createTracks(script.tracks); this.logStep("[STEP] createTracks DONE"); this.log.push("[DEBUG] createTracks OK"); } } catch(e: any) { this.errors.push("[createTracks] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
+      try { this.log.push("[DEBUG] creating " + (script.clips ? script.clips.length : 0) + " clips..."); this.logStep("[STEP] createClips START"); this.createClips(script.clips || []); this.log.push("[DEBUG] createClips OK");
       // I2V: clips with _video mediaId should be video type
       const _clips = useEditorStore.getState().clips;
       const _fixed = _clips.map(c => c.mediaId && c.mediaId.endsWith("_video") ? { ...c, type: "video" } : c);
       useEditorStore.getState().setClips(_fixed);
       this.log.push("[DEBUG] i2v clips reclassified to video"); } catch(e: any) { this.errors.push("[createClips] " + e.message + " | stack: " + (e.stack || "").split("\n")[1]); }
-      try { if (script.actions && Array.isArray(script.actions)) { this.log.push("[DEBUG] executing " + script.actions.length + " actions..."); await this.executeActions(script.actions); this.log.push("[DEBUG] executeActions OK");
+      try { if (script.actions && Array.isArray(script.actions)) { this.log.push("[DEBUG] executing " + script.actions.length + " actions..."); this.logStep("[STEP] executeActions START"); await this.executeActions(script.actions); this.log.push("[DEBUG] executeActions OK");
 
       // === Auto Subtitle Generation ===
       const subtitleSegments = (this as any)._subtitleSegments || [];
