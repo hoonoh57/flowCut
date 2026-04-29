@@ -323,7 +323,7 @@ export class ScriptEngine {
                   body: JSON.stringify({
                     imageLocalPath: chainStartImage,
                     positive: i2vPrompt,
-                    width: 480, height: 832, length: 81, steps: 30
+                    width: 480, height: 480, length: 81, steps: 6
                   })
                 });
                 const i2vData = await i2vResp.json();
