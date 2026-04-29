@@ -10,59 +10,38 @@ echo    FlowCut FULL SHUTDOWN
 echo  ==========================================
 echo.
 
-echo  [1/6] FlowCut windows...
+echo  [1/5] FlowCut windows...
 taskkill /f /fi "WINDOWTITLE eq FlowCut-*" >nul 2>&1
 echo        Done.
 
-echo  [2/6] Node.js processes...
+echo  [2/5] Node.js processes...
 wmic process where "name='node.exe' and commandline like '%%server.cjs%%'" call terminate >nul 2>&1
 wmic process where "name='node.exe' and commandline like '%%vite%%'" call terminate >nul 2>&1
 wmic process where "name='node.exe' and commandline like '%%flowCut%%'" call terminate >nul 2>&1
 echo        Done.
 
-echo  [3/6] Ollama...
+echo  [3/5] Ollama...
 taskkill /f /im ollama.exe >nul 2>&1
 taskkill /f /im ollama_llama_server.exe >nul 2>&1
 echo        Done.
 
-echo  [4/6] ComfyUI...
+echo  [4/5] ComfyUI...
 wmic process where "name='python.exe' and commandline like '%%ComfyUI%%'" call terminate >nul 2>&1
 wmic process where "name='python.exe' and commandline like '%%main.py%%'" call terminate >nul 2>&1
 echo        Done.
 
-echo  [5/6] Kill by ports...
-for %%p in (3456 5173 8188 11434) do (
-    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%%p.*LISTENING" 2^>nul') do (
-        echo        Killing PID %%a on port %%p
-        taskkill /f /pid %%a >nul 2>&1
-    )
-)
-timeout /t 1 /nobreak >nul
+echo  [5/5] Kill by ports...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3456.*LISTENING" 2^>nul') do taskkill /f /pid %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5173.*LISTENING" 2^>nul') do taskkill /f /pid %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8188.*LISTENING" 2^>nul') do taskkill /f /pid %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":11434.*LISTENING" 2^>nul') do taskkill /f /pid %%a >nul 2>&1
 echo        Done.
-
-echo  [6/6] Verify...
-set "allclear=1"
-for %%p in (3456 5173 8188 11434) do (
-    netstat -ano 2>nul | findstr ":%%p.*LISTENING" >nul 2>&1
-    if !errorlevel! equ 0 (
-        echo        [FAIL] Port %%p still in use!
-        set "allclear=0"
-        for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%%p.*LISTENING" 2^>nul') do (
-            taskkill /f /pid %%a >nul 2>&1
-        )
-    ) else (
-        echo        Port %%p: free
-    )
-)
 
 del /q "E:\2026\flowCut\temp\filter_*.txt" >nul 2>&1
 
 echo.
-if "!allclear!"=="1" (
-    echo  ALL STOPPED SUCCESSFULLY
-) else (
-    color 4F
-    echo  WARNING: Some processes survived! Restart Windows if needed.
-)
+echo  ==========================================
+echo    FlowCut stopped.
+echo  ==========================================
 echo.
-timeout /t 5
+timeout /t 3
