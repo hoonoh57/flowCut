@@ -11,10 +11,10 @@
       "class_type": "KSampler",
       "inputs": {
         "seed": -1,
-        "steps": 20,
+        "steps": 25,
         "cfg": 5,
         "sampler_name": "uni_pc",
-        "scheduler": "normal",
+        "scheduler": "simple",
         "denoise": 1,
         "model": ["48", 0],
         "positive": ["6", 0],
