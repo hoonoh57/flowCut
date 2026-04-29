@@ -1,20 +1,20 @@
 {
     "id":  "video-i2v",
-    "name":  "Image to Video (Wan2.2 5B + CausVid)",
+    "name": "Image to Video (Wan2.2 5B Optimized)",
     "description":  "Animate a reference image into 2-second video clip",
     "engine":  "comfyui",
     "vramRequired":  6,
-    "estimatedTime":  "30-60s",
+    "estimatedTime": "60-120s",
     "outputType":  "video",
     "workflow":  {
                      "3":  {
                                "class_type":  "KSampler",
                                "inputs":  {
                                               "seed":  -1,
-                                              "steps":  8,
-                                              "cfg":  1,
-                                              "sampler_name":  "uni_pc",
-                                              "scheduler":  "simple",
+                                              "steps": 20,
+                                              "cfg": 5,
+                                              "sampler_name": "uni_pc",
+                                              "scheduler": "normal",
                                               "denoise":  1,
                                               "model":  [
                                                             "48",
@@ -39,7 +39,7 @@
                                "inputs":  {
                                               "text":  "{{positive}}",
                                               "clip":  [
-                                                           "60",
+                                                           "38",
                                                            1
                                                        ]
                                           }
@@ -49,7 +49,7 @@
                                "inputs":  {
                                               "text":  "blurry, overexposed, static, subtitle, worst quality, low quality, JPEG artifacts, ugly, deformed, still frame, text, watermark",
                                               "clip":  [
-                                                           "60",
+                                                           "38",
                                                            1
                                                        ]
                                           }
@@ -114,7 +114,7 @@
                                 "inputs":  {
                                                "shift":  8,
                                                "model":  [
-                                                             "60",
+                                                             "37",
                                                              0
                                                          ]
                                            }
@@ -130,8 +130,8 @@
                                                                    "10",
                                                                    0
                                                                ],
-                                               "width":  480,
-                                               "height":  480,
+                                               "width": 480,
+                                               "height": 832,
                                                "length":  81,
                                                "batch_size":  1
                                            }
